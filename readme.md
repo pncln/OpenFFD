@@ -75,9 +75,18 @@ python ffd_generator.py <mesh_file> [options]
 | `-m, --margin VALUE` | Margin padding around the mesh (default: 0.0) |
 | `-o, --output FILE` | Output filename: .3df or .xyz (default: ffd_box.3df) |
 | `--plot` | Visualize FFD lattice |
+
 | `--debug` | Enable debug output |
 | `--force-ascii` | Force ASCII reading for Fluent mesh |
 | `--force-binary` | Force binary reading for Fluent mesh |
+| `--view-axis` | View axis for 3D visualization (default: x) |
+| `--detail-level` | Detail level for 3D visualization (default: low) |
+| `--show-original-mesh` | Show original mesh in 3D visualization |
+| `--ffd-point-size` | Size of FFD control points in 3D visualization |
+| `--ffd-color` | Color of FFD control points in 3D visualization |
+| `--ffd-alpha` | Alpha value of FFD control points in 3D visualization |
+| `--view-angle` | View angle for 3D visualization (default: 30) |
+
 
 ### Example Workflows
 
@@ -146,12 +155,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 If you use this tool in your research, please cite:
 
 ```bibtex
-@software{ffd_generator,
-  author    = {Your Name},
-  title     = {FFD Control Box Generator},
+@software{openffd,
+  author    = {Emil Mammadli},
+  title     = {OpenFFD -- Open-Source FFD Control Box Generator},
   year      = {2025},
   publisher = {GitHub},
-  url       = {https://github.com/username/ffd_generator}
+  url       = {https://github.com/pncln/openffd}
 }
 ```
 
