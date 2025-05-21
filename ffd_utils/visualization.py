@@ -4,7 +4,7 @@ Visualization utilities for FFD control boxes.
 This module provides functions for visualizing FFD control lattices,
 bounding boxes, and mesh points using matplotlib's 3D plotting capabilities.
 
-Author: TÜBİTAK
+Author: Emil Mammadli
 Version: 1.0.0
 """
 import numpy as np

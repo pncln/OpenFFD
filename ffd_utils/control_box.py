@@ -5,7 +5,7 @@ This module provides functions for creating Free-Form Deformation (FFD) control 
 based on mesh point coordinates. FFD is a powerful technique used in shape optimization
 and computational design to smoothly deform complex geometries.
 
-Author: TÜBİTAK
+Author: Emil Mammadli
 Version: 1.0.0
 """
 import numpy as np

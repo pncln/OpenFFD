@@ -7,7 +7,7 @@ and visualize the FFD control points and bounding box.
 Supports Fluent mesh (.cas, .msh) files as well as common mesh formats including VTK, STL, OBJ, and Gmsh .msh files,
 and can restrict the FFD box to a specified mesh cell set/patch, including Fluent zones.
 
-Author: TÜBİTAK
+Author: Emil Mammadli
 Version: 1.0.0
 """
 import argparse

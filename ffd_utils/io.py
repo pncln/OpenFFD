@@ -4,7 +4,7 @@ I/O utilities for FFD control box data.
 This module provides functions for reading and writing FFD control points
 in various file formats, including .3df (ID, x, y, z) and .xyz (DAFoam format).
 
-Author: TÜBİTAK
+Author: Emil Mammadli
 Version: 1.0.0
 """
 import numpy as np
