@@ -21,11 +21,11 @@ A robust tool for generating Free-Form Deformation (FFD) control boxes for compu
 
 ## 📦 Installation
 
-### From PyPI
+<!-- ### From PyPI
 
 ```bash
 pip install ffd-generator
-```
+``` -->
 
 ### From Source
 
