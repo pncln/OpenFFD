@@ -1,4 +1,4 @@
-# FFD Control Box Generator
+# OpenFFD -- Open-Source FFD Control Box Generator
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue.svg" />
