@@ -1,4 +1,4 @@
-# OpenFFD -- Open-Source FFD Control Box Generator
+# OpenFFD - Open-Source FFD Control Box Generator
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue.svg" />
@@ -16,7 +16,7 @@ A robust tool for generating Free-Form Deformation (FFD) control boxes for compu
 - **Selective Targeting**: Restrict FFD boxes to specific mesh zones, patches, or cell sets
 - **Multi-format Export**: Generate control points in .3df or .xyz (DAFoam) formats
 - **Advanced Visualization**: Interactive 3D plotting with complete grid visualization showing all control point connections
-- **High-Density Support**: Efficiently handles high point density grids (e.g., 75×50×2 for rocket launch pad meshes)
+- **High-Density Support**: Efficiently handles high point density grids
 - **Optimization Integration**: Direct compatibility with aerodynamic shape optimization frameworks
 
 ## 📦 Installation
