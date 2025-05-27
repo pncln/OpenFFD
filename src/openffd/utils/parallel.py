@@ -1,122 +1,127 @@
 """
 Parallel processing utilities for OpenFFD.
 
-This module provides functions and classes for parallel processing of large
-mesh data and FFD operations using modern multiprocessing techniques.
+This module provides functions and classes for parallel processing
+of large datasets, such as mesh points and control points.
 """
 
 import logging
+import multiprocessing as mp
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union, Iterator
+from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Type variable for generic type hints
+# Type variables for generic functions
 T = TypeVar('T')
 R = TypeVar('R')
 
 
-@dataclass
 class ParallelConfig:
     """Configuration for parallel processing.
     
-    Attributes:
-        enabled: Whether parallel processing is enabled
-        method: The method to use for parallelization ('process' or 'thread')
-        max_workers: Maximum number of worker processes/threads (None = auto)
-        chunk_size: Size of data chunks for parallel processing (None = auto)
-        threshold: Minimum data size to trigger parallelization
+    This class provides configuration options for parallel processing,
+    including enabling/disabling, method (thread/process), and worker count.
     """
     
-    enabled: bool = True
-    method: str = 'process'  # 'process' or 'thread'
-    max_workers: Optional[int] = None  # None = auto-detect based on CPU count
-    chunk_size: Optional[int] = None  # None = auto-calculate
-    threshold: int = 10000  # Minimum data size to trigger parallelization
+    def __init__(
+        self,
+        enabled: bool = False,  # Default to False for better performance with small datasets
+        method: str = "process",
+        max_workers: Optional[int] = None,
+        chunk_size: Optional[int] = None,
+        threshold: int = 100000,  # Increased threshold to avoid overhead with smaller datasets
+    ):
+        """Initialize parallel processing configuration.
+        
+        Args:
+            enabled: Whether parallel processing is enabled
+            method: Method for parallelization ('process' or 'thread')
+            max_workers: Maximum number of worker processes/threads
+            chunk_size: Size of data chunks for parallel processing
+            threshold: Minimum data size to trigger parallelization
+        """
+        self.enabled = enabled
+        self.method = method
+        self.max_workers = max_workers
+        self.chunk_size = chunk_size
+        self.threshold = threshold
 
 
-def is_parallelizable(array_size: int, config: Optional[ParallelConfig] = None) -> bool:
-    """Determine if an operation should be parallelized based on array size and configuration.
+def is_parallelizable(data_size: int, config: Optional[ParallelConfig] = None) -> bool:
+    """Determine if a task is parallelizable based on data size and configuration.
     
     Args:
-        array_size: Size of the array to process
+        data_size: Size of the data to process
         config: Parallel processing configuration
         
     Returns:
-        bool: True if the operation should be parallelized
+        True if the task should be parallelized, False otherwise
     """
     if config is None:
         config = ParallelConfig()
-        
-    if not config.enabled:
+    
+    # Early optimization: don't parallelize very small datasets regardless of config
+    if data_size < 10000:  # Hard minimum threshold to avoid overhead
         return False
-        
-    return array_size >= config.threshold
+    
+    # Only parallelize if enabled and data size exceeds threshold
+    return config.enabled and data_size >= config.threshold
 
 
-def get_optimal_chunk_size(
-    array_size: int, 
-    max_workers: Optional[int] = None, 
-    min_chunk_size: int = 1000
-) -> int:
+def get_optimal_chunk_size(total_size: int, target_chunks: int = None) -> int:
     """Calculate optimal chunk size for parallel processing.
     
+    This function determines the optimal chunk size based on the total data size
+    and the target number of chunks or available CPU cores.
+    
     Args:
-        array_size: Size of the array to process
-        max_workers: Maximum number of worker processes/threads
-        min_chunk_size: Minimum chunk size
+        total_size: Total size of the data to be processed
+        target_chunks: Target number of chunks (defaults to CPU count)
         
     Returns:
-        int: Optimal chunk size
+        Chunk size to use for parallel processing
     """
-    if max_workers is None:
-        # Use available CPU cores, but leave one for system tasks
-        max_workers = max(1, os.cpu_count() or 4 - 1)
+    if target_chunks is None:
+        # Use a reasonable number of chunks based on CPU count
+        cpu_count = mp.cpu_count()
+        # Use fewer chunks for smaller datasets to reduce overhead
+        if total_size < 1000000:  # 1M elements
+            target_chunks = max(2, min(4, cpu_count))  # Use 2-4 chunks for small datasets
+        else:
+            target_chunks = min(16, cpu_count)  # Cap at 16 to avoid excessive overhead
     
-    # Calculate base chunk size
-    chunk_size = max(min_chunk_size, array_size // max_workers)
-    
-    # Ensure we don't create more chunks than workers
-    if array_size // chunk_size > max_workers:
-        chunk_size = max(min_chunk_size, array_size // max_workers)
+    # Calculate base chunk size with a minimum to avoid overhead of too many small chunks
+    chunk_size = max(10000, total_size // target_chunks)
     
     return chunk_size
 
 
-def chunk_array(array: np.ndarray, chunk_size: Optional[int] = None) -> List[np.ndarray]:
-    """Split an array into chunks for parallel processing.
+def chunk_array(array: np.ndarray, chunk_size: int) -> List[np.ndarray]:
+    """Split an array into chunks of the specified size.
     
     Args:
         array: Array to split
-        chunk_size: Size of each chunk (None = auto-calculate)
+        chunk_size: Size of each chunk
         
     Returns:
         List of array chunks
     """
-    if array.size == 0:
+    if len(array) <= chunk_size:
         return [array]
         
-    if chunk_size is None:
-        chunk_size = get_optimal_chunk_size(len(array))
+    return [array[i:i+chunk_size] for i in range(0, len(array), chunk_size)]
+
+
+def parallel_process(func: Callable[[T], R], items: List[T], config: Optional[ParallelConfig] = None, **kwargs) -> List[R]:
+    """Process items in parallel using the given function.
     
-    # Split array into chunks
-    return np.array_split(array, max(1, len(array) // chunk_size))
-
-
-def parallel_process(
-    func: Callable[[T], R],
-    items: List[T],
-    config: Optional[ParallelConfig] = None,
-    **kwargs
-) -> List[R]:
-    """Process items in parallel using either ProcessPoolExecutor or ThreadPoolExecutor.
+    This function is a convenience wrapper around ParallelExecutor.map().
     
     Args:
         func: Function to apply to each item
@@ -127,248 +132,130 @@ def parallel_process(
     Returns:
         List of results
     """
-    if not items:
-        return []
-        
-    if config is None:
-        config = ParallelConfig()
-    
-    # If parallelization is disabled or below threshold, process sequentially
-    if not config.enabled or len(items) < config.threshold:
-        return [func(item, **kwargs) for item in items]
-    
-    # Determine max_workers
-    max_workers = config.max_workers
-    if max_workers is None:
-        # Use available CPU cores, but leave one for system tasks
-        max_workers = max(1, os.cpu_count() or 4 - 1)
-    
-    # Choose executor based on method
-    executor_class = ProcessPoolExecutor if config.method == 'process' else ThreadPoolExecutor
-    
-    results = []
-    start_time = time.time()
-    
-    with executor_class(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_item = {
-            executor.submit(func, item, **kwargs): i for i, item in enumerate(items)
-        }
-        
-        # Collect results as they complete
-        for future in as_completed(future_to_item):
-            item_index = future_to_item[future]
-            try:
-                result = future.result()
-                results.append((item_index, result))
-            except Exception as e:
-                logger.error(f"Error processing item {item_index}: {e}")
-                # Optionally re-raise or handle the error
-                raise
-    
-    # Sort results by original index
-    results.sort(key=lambda x: x[0])
-    
-    # Extract just the results
-    sorted_results = [result for _, result in results]
-    
-    end_time = time.time()
-    logger.debug(f"Parallel processing completed in {end_time - start_time:.2f} seconds")
-    
-    return sorted_results
-
-
-def parallelize(config: Optional[ParallelConfig] = None):
-    """Decorator to parallelize a function that processes arrays.
-    
-    This decorator checks if the input array size exceeds the threshold for
-    parallelization, and if so, splits the array into chunks and processes
-    them in parallel.
-    
-    Args:
-        config: Parallel processing configuration
-        
-    Returns:
-        Decorated function
-    """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(array, *args, **kwargs):
-            # Check if we should parallelize
-            if not is_parallelizable(len(array), config):
-                return func(array, *args, **kwargs)
-            
-            # Determine chunk size
-            chunk_size = config.chunk_size if config and config.chunk_size else get_optimal_chunk_size(len(array))
-            
-            # Split array into chunks
-            chunks = chunk_array(array, chunk_size)
-            
-            # Process chunks in parallel
-            results = parallel_process(func, chunks, config, *args, **kwargs)
-            
-            # Combine results (the combination method depends on the function)
-            try:
-                # Most common case: result is a numpy array
-                return np.concatenate(results)
-            except (ValueError, TypeError):
-                # If concatenation fails, return list of results
-                return results
-        
-        return wrapper
-    
-    return decorator
+    executor = ParallelExecutor(config)
+    return executor.map(func, items, **kwargs)
 
 
 class ParallelExecutor:
-    """Class for executing tasks in parallel with a consistent configuration.
+    """Class for executing tasks in parallel.
     
-    This class provides a convenient interface for parallel processing with
-    a reusable configuration, progress tracking, and exception handling.
+    This class provides a simple interface for executing tasks in parallel
+    using either processes or threads.
     """
     
     def __init__(self, config: Optional[ParallelConfig] = None):
-        """Initialize the parallel executor.
+        """Initialize the executor with the given configuration.
         
         Args:
             config: Parallel processing configuration
         """
-        self.config = config or ParallelConfig()
-        self._start_time = None
-        self._task_count = 0
-        self._completed_tasks = 0
+        self.config = config if config is not None else ParallelConfig()
+        
+        # Determine the number of workers
+        if self.config.max_workers is None:
+            # More intelligent worker selection based on data characteristics
+            cpu_count = mp.cpu_count()
+            # For most systems, using n-1 cores is optimal to leave resources for OS
+            self.workers = max(2, min(cpu_count - 1 if cpu_count > 2 else cpu_count, 16))
+        else:
+            self.workers = self.config.max_workers
     
     def map(self, func: Callable[[T], R], items: List[T], **kwargs) -> List[R]:
         """Execute a function on multiple items in parallel.
         
         Args:
-            func: Function to apply to each item
+            func: Function to execute on each item
             items: List of items to process
             **kwargs: Additional arguments to pass to the function
             
         Returns:
             List of results
         """
-        self._start_time = time.time()
-        self._task_count = len(items)
-        self._completed_tasks = 0
-        
+        # Handle empty lists
         if not items:
             return []
             
-        # If parallelization is disabled or below threshold, process sequentially
+        # Fall back to serial execution if parallel processing is disabled or dataset is too small
         if not self.config.enabled or len(items) < self.config.threshold:
-            results = []
-            for item in items:
-                results.append(func(item, **kwargs))
-                self._completed_tasks += 1
-            return results
+            return [func(item, **kwargs) for item in items]
         
-        # Determine max_workers
-        max_workers = self.config.max_workers
-        if max_workers is None:
-            # Use available CPU cores, but leave one for system tasks
-            max_workers = max(1, os.cpu_count() or 4 - 1)
+        # Calculate chunk size if not specified
+        chunk_size = self.config.chunk_size
+        if chunk_size is None:
+            chunk_size = get_optimal_chunk_size(len(items))
+        
+        # Split items into chunks - ensure chunks aren't too small
+        chunks = [items[i:i+chunk_size] for i in range(0, len(items), chunk_size)]
+        
+        # If we have very few chunks, just run in serial to avoid parallelization overhead
+        if len(chunks) <= 1:
+            return [func(item, **kwargs) for item in items]
+        
+        # For very small jobs, reduce worker count to avoid overhead
+        max_workers = min(self.workers, len(chunks))
+        
+        # Define a wrapper function that accepts a chunk of items
+        def process_chunk(chunk):
+            return [func(item, **kwargs) for item in chunk]
         
         # Choose executor based on method
         executor_class = ProcessPoolExecutor if self.config.method == 'process' else ThreadPoolExecutor
         
-        results = []
-        
-        with executor_class(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_item = {
-                executor.submit(func, item, **kwargs): i for i, item in enumerate(items)
-            }
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_item):
-                item_index = future_to_item[future]
-                try:
-                    result = future.result()
-                    results.append((item_index, result))
-                except Exception as e:
-                    logger.error(f"Error processing item {item_index}: {e}")
-                    # Optionally re-raise or handle the error
-                    raise
-                
-                self._completed_tasks += 1
-        
-        # Sort results by original index
-        results.sort(key=lambda x: x[0])
-        
-        # Extract just the results
-        sorted_results = [result for _, result in results]
-        
-        end_time = time.time()
-        logger.debug(f"Parallel processing completed in {end_time - self._start_time:.2f} seconds")
-        
-        return sorted_results
-    
-    def process_array_in_chunks(
-        self, 
-        func: Callable[[np.ndarray], np.ndarray], 
-        array: np.ndarray, 
-        chunk_size: Optional[int] = None,
-        **kwargs
-    ) -> np.ndarray:
-        """Process a large array in parallel by splitting it into chunks.
-        
-        Args:
-            func: Function to apply to each chunk
-            array: Array to process
-            chunk_size: Size of each chunk (None = auto-calculate)
-            **kwargs: Additional arguments to pass to the function
-            
-        Returns:
-            Processed array
-        """
-        if array.size == 0:
-            return array
-            
-        if not self.config.enabled or array.shape[0] < self.config.threshold:
-            return func(array, **kwargs)
-        
-        # Determine chunk size
-        if chunk_size is None:
-            chunk_size = self.config.chunk_size
-        if chunk_size is None:
-            chunk_size = get_optimal_chunk_size(array.shape[0])
-        
-        # Split array into chunks
-        chunks = chunk_array(array, chunk_size)
-        
         # Process chunks in parallel
-        results = self.map(func, chunks, **kwargs)
-        
-        # Combine results
+        start_time = time.time()
         try:
-            return np.concatenate(results)
-        except ValueError:
-            logger.warning("Could not concatenate results, returning as list")
+            with executor_class(max_workers=max_workers) as executor:
+                # Use simpler, more efficient executor.map pattern
+                chunk_results = list(executor.map(process_chunk, chunks))
+                
+            # Flatten results
+            results = []
+            for chunk_result in chunk_results:
+                results.extend(chunk_result)
+                
+            end_time = time.time()
+            logger.debug(f"Parallel processing completed in {end_time - start_time:.2f} seconds")
+            
             return results
+        except Exception as e:
+            logger.error(f"Error in parallel execution: {e}")
+            # Fall back to sequential execution if parallel fails
+            logger.info("Falling back to sequential execution due to error")
+            return [func(item, **kwargs) for item in items]
+
+
+def process_array_in_chunks(
+    func: Callable[[np.ndarray], np.ndarray],
+    array: np.ndarray,
+    chunk_size: int,
+    config: Optional[ParallelConfig] = None,
+    **kwargs
+) -> np.ndarray:
+    """Process a NumPy array in chunks and combine the results.
     
-    def get_progress(self) -> Tuple[int, int, float, Optional[float]]:
-        """Get the current progress of parallel processing.
+    This function is specifically designed for operations on large NumPy arrays,
+    where the operation can be split into independent chunks.
+    
+    Args:
+        func: Function to apply to each chunk
+        array: NumPy array to process
+        chunk_size: Size of each chunk
+        config: Parallel processing configuration
+        **kwargs: Additional arguments to pass to the function
         
-        Returns:
-            Tuple containing:
-            - Number of completed tasks
-            - Total number of tasks
-            - Percentage complete
-            - Estimated time remaining in seconds (None if not available)
-        """
-        if self._task_count == 0:
-            return 0, 0, 0.0, None
-            
-        percent = 100.0 * self._completed_tasks / self._task_count
-        
-        # Calculate estimated time remaining
-        if self._start_time is not None and self._completed_tasks > 0:
-            elapsed = time.time() - self._start_time
-            time_per_task = elapsed / self._completed_tasks
-            remaining = time_per_task * (self._task_count - self._completed_tasks)
-        else:
-            remaining = None
-            
-        return self._completed_tasks, self._task_count, percent, remaining
+    Returns:
+        Processed array
+    """
+    # If the array is small, process it directly
+    if len(array) <= chunk_size:
+        return func(array, **kwargs)
+    
+    # Split the array into chunks
+    chunks = chunk_array(array, chunk_size)
+    
+    # Process chunks in parallel
+    executor = ParallelExecutor(config)
+    processed_chunks = executor.map(func, chunks, **kwargs)
+    
+    # Combine the processed chunks
+    return np.vstack(processed_chunks)

@@ -119,18 +119,22 @@ def parse_arguments() -> argparse.Namespace:
     
     # Parallel processing options
     parallel_group = parser.add_argument_group('parallel', 'Parallel processing options')
-    parallel_group.add_argument('--parallel', action='store_true', default=True, 
-                           help='Enable parallel processing for large meshes (default: enabled)')
+    parallel_group.add_argument('--parallel', action='store_true', default=False, 
+                           help='Enable parallel processing for large meshes and visualization (default: disabled)')
     parallel_group.add_argument('--no-parallel', action='store_true', 
-                           help='Disable parallel processing')
+                           help='Disable parallel processing completely')
     parallel_group.add_argument('--parallel-method', choices=['process', 'thread'], default='process',
                            help='Method for parallelization: process (faster but more memory) or thread (default: process)')
     parallel_group.add_argument('--parallel-workers', type=int, default=None,
                            help='Number of worker processes/threads (default: auto-detect based on CPU count)')
     parallel_group.add_argument('--parallel-chunk-size', type=int, default=None,
                            help='Size of data chunks for parallel processing (default: auto-calculate)')
-    parallel_group.add_argument('--parallel-threshold', type=int, default=10000,
-                           help='Minimum data size to trigger parallelization (default: 10000 points)')
+    parallel_group.add_argument('--parallel-threshold', type=int, default=100000,
+                           help='Minimum data size to trigger parallelization (default: 100000 points)')
+    parallel_group.add_argument('--parallel-viz', action='store_true', default=None,
+                           help='Enable parallel processing for visualization only')
+    parallel_group.add_argument('--no-parallel-viz', action='store_true',
+                           help='Disable parallel processing for visualization even if parallel is enabled')
     
     return parser.parse_args()
 
@@ -413,31 +417,33 @@ def main() -> int:
                         max_points = min(10000, args.max_points)
                         use_multiple_projections = True
                     
+                    # Determine parallel visualization settings
+                    use_parallel_viz = args.parallel_viz or (args.parallel and not args.no_parallel_viz)
+                    
                     # Use PyVista-based visualization for much faster rendering and better quality
                     visualize_mesh_with_patches_pyvista(
                         mesh, 
                         save_path=save_path,
-                        title=f"Mesh with FFD Control Box: {os.path.basename(args.mesh_file)}",
-                        point_size=args.point_size * 1.5,  # Larger points for better visibility
-                        auto_scale=not args.no_auto_scale,
-                        scale_factor=args.scale_factor,
-                        show_solid=not args.no_surface,
-                        opacity=args.surface_alpha,
-                        show_edges=args.show_mesh_edges,
+                        title=f"FFD Box: {os.path.basename(args.mesh_file)}",
+                        point_size=args.point_size,
+                        max_points_per_zone=args.max_points,
+                        max_triangles=args.max_triangles,
+                        detail_level=args.detail_level,
+                        show_axes=True,
+                        show_edges=False,
                         color_by_zone=True,  # Color by zone for better visualization
-                        bgcolor='white',  # White background
-                        max_points_per_zone=1000000 if args.detail_level == 'high' else 10000,  # Much higher point count for better surface quality
-                        skip_internal_zones=True,  # Focus only on boundary zones for quality
-                        use_original_faces=True,  # Try to use original face connectivity for better edges
-                        ffd_control_points=cps,  # Add the FFD control points
-                        ffd_color=args.ffd_color,  # Show FFD in selected color
-                        ffd_opacity=args.ffd_alpha,  # Use specified transparency
-                        ffd_point_size=args.ffd_point_size,  # Use customized size for FFD control points
-                        show_ffd_mesh=True,  # Show the wireframe grid
-                        zoom_region=args.zoom_region,  # Custom region to zoom into if specified
-                        zoom_factor=args.zoom_factor,  # Zoom factor for the view
-                        ffd_box_dims=args.dims,  # Pass the FFD box dimensions explicitly
-                        view_axis=args.view_axis  # Align view with specified axis if requested
+                        ffd_control_points=cps,
+                        ffd_box_dims=list(args.dims),
+                        ffd_opacity=args.ffd_alpha,
+                        ffd_color=args.ffd_color,
+                        ffd_point_size=args.ffd_point_size,
+                        show_ffd_mesh=True,
+                        zoom_region=args.zoom_region,
+                        view_axis=args.view_axis,
+                        parallel=use_parallel_viz,
+                        parallel_threshold=args.parallel_threshold,
+                        parallel_workers=args.parallel_workers,
+                        zoom_factor=args.zoom_factor  # Zoom factor for the view
                     )
                 else:
                     # For other mesh types, we need to use the original mesh object

@@ -7,12 +7,22 @@ using both matplotlib and PyVista for high-quality rendering.
 
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+from openffd.utils.parallel import ParallelConfig, is_parallelizable, parallel_process
+from openffd.visualization.parallel_viz import (
+    process_point_cloud_parallel,
+    subsample_points_parallel,
+    create_mesh_chunks_parallel,
+    compute_normals_parallel,
+    extract_mesh_features_parallel
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -91,54 +101,98 @@ def visualize_mesh_with_patches(
     # Import mesh related modules here to avoid circular imports
     from openffd.mesh.fluent import FluentMeshReader
     
+    # Track visualization timing
+    start_time = time.time()
+    
+    # Configure parallel processing
+    parallel_config = ParallelConfig(
+        enabled=True,
+        threshold=100000,
+        max_workers=None
+    )
+    
     # Get all points and patches from the mesh
     all_points = None
     patches = {}
     
-    # Handle different mesh types
+    # Handle different mesh data types
     if isinstance(mesh_data, FluentMeshReader):
+        logger.info("Processing Fluent mesh data with parallel processing")
         all_points = mesh_data.points
         
-        # Get all zones
-        for zone_name in mesh_data.get_available_zones():
-            zone_points = mesh_data.get_zone_points(zone_name)
-            if len(zone_points) > 0:
+        # Get zone information
+        zone_names = mesh_data.get_zone_names()
+        
+        # Use parallel processing to extract zone points if dataset is large
+        if parallel_config.enabled and is_parallelizable(len(all_points), parallel_config):
+            # Define function to extract zone points in parallel
+            def get_zone_data(zone_name):
+                return (
+                    zone_name, 
+                    mesh_data.get_zone_points(zone_name),
+                    mesh_data.get_zone_type(zone_name),
+                    mesh_data.get_zone_faces(zone_name) if True and hasattr(mesh_data, 'get_zone_faces') else None
+                )
+            
+            # Process zones in parallel
+            logger.info(f"Extracting zone data in parallel for {len(zone_names)} zones")
+            zone_results = parallel_process(get_zone_data, zone_names, parallel_config)
+            
+            # Organize results
+            patches = {}
+            patch_types = {}
+            zone_faces = {}
+            
+            for zone_name, zone_points, zone_type, zone_face_data in zone_results:
                 patches[zone_name] = zone_points
+                patch_types[zone_name] = zone_type
+                if zone_face_data is not None:
+                    zone_faces[zone_name] = zone_face_data
+        else:
+            # Standard sequential processing
+            patches = {zone_name: mesh_data.get_zone_points(zone_name) 
+                     for zone_name in zone_names}
+            patch_types = {zone_name: mesh_data.get_zone_type(zone_name) 
+                         for zone_name in zone_names}
+            
+            # Get face connectivity if available
+            zone_faces = {}
+            if True and hasattr(mesh_data, 'get_zone_faces'):
+                for zone_name in zone_names:
+                    try:
+                        zone_faces[zone_name] = mesh_data.get_zone_faces(zone_name)
+                    except Exception as e:
+                        logger.warning(f"Could not get faces for zone {zone_name}: {e}")
+    elif hasattr(mesh_data, 'points') and hasattr(mesh_data, 'cells'):
+        # This is likely a meshio.Mesh object
+        all_points = mesh_data.points
+        
+        # Extract patches from mesh cells
+        patches = {}
+        patch_types = {}
+        zone_faces = {}
+        
+        # Process cells by type
+        for cell_type, cell_data in zip(mesh_data.cells_dict.keys(), mesh_data.cells_dict.values()):
+            # Create a zone name based on cell type
+            zone_name = f"{cell_type}"
+            
+            # Extract points for this zone
+            cell_points = np.unique(cell_data.flatten())
+            patches[zone_name] = all_points[cell_points]
+            patch_types[zone_name] = cell_type
+            
+            # Store face connectivity if requested
+            if True:
+                zone_faces[zone_name] = cell_data
     else:
-        # Assume it's a meshio.Mesh object
-        if hasattr(mesh_data, 'points'):
-            all_points = mesh_data.points
-            
-            # Try to extract patches from cell_sets
-            if hasattr(mesh_data, 'cell_sets') and mesh_data.cell_sets:
-                for patch_name, cell_blocks in mesh_data.cell_sets.items():
-                    # Extract points for this patch
-                    patch_point_indices = set()
-                    
-                    for cell_type, indices in cell_blocks.items():
-                        # Find the corresponding cell block
-                        cell_block_idx = next((i for i, block in enumerate(mesh_data.cells) 
-                                             if block.type == cell_type), None)
-                        
-                        if cell_block_idx is None:
-                            continue
-                            
-                        # Get the cells for this patch
-                        cells = mesh_data.cells[cell_block_idx].data[indices]
-                        
-                        # Collect all unique node IDs
-                        for cell in cells:
-                            for node_id in cell:
-                                patch_point_indices.add(node_id)
-                    
-                    # Convert to points
-                    if patch_point_indices:
-                        patch_points = all_points[list(patch_point_indices)]
-                        patches[patch_name] = patch_points
-            
-            # If no patches found, create a default patch with all points
-            if not patches:
-                patches["default"] = all_points
+        # Try to extract points directly
+        try:
+            all_points = np.array(mesh_data)
+            patches = {"default": all_points}
+            patch_types = {"default": "points"}
+        except Exception as e:
+            raise ValueError(f"Could not extract points from mesh data: {e}")
     
     # Check if we have points
     if all_points is None or len(all_points) == 0:
@@ -254,6 +308,8 @@ def visualize_mesh_with_patches_pyvista(
     bgcolor: str = 'white',
     window_size: Tuple[int, int] = (1024, 768),
     max_points_per_zone: int = 5000,
+    max_triangles: int = 10000,
+    detail_level: str = 'medium',
     skip_internal_zones: bool = True,
     use_original_faces: bool = False,
     ffd_control_points: Optional[np.ndarray] = None,
@@ -265,7 +321,10 @@ def visualize_mesh_with_patches_pyvista(
     zoom_region: Optional[Tuple[float, float, float, float, float, float]] = None,
     zoom_factor: float = 1.0,
     view_axis: Optional[str] = None,
-    ffd_box_dims: Optional[List[int]] = None
+    ffd_box_dims: Optional[List[int]] = None,
+    parallel: bool = True,
+    parallel_threshold: int = 100000,
+    parallel_workers: Optional[int] = None
 ) -> None:
     """Visualize the mesh using PyVista for faster, higher-quality rendering.
     
@@ -307,6 +366,16 @@ def visualize_mesh_with_patches_pyvista(
     
     # Import mesh related modules here to avoid circular imports
     from openffd.mesh.fluent import FluentMeshReader
+    
+    # Track visualization timing
+    start_time = time.time()
+    
+    # Configure parallel processing
+    parallel_config = ParallelConfig(
+        enabled=parallel,
+        threshold=parallel_threshold,
+        max_workers=parallel_workers
+    )
     
     # Create a PyVista plotter
     plotter = pv.Plotter(window_size=window_size)
@@ -424,6 +493,48 @@ def visualize_mesh_with_patches_pyvista(
                 
             logger.info(f"Applied scaling factor of {actual_scale} to visualization")
     
+    # Calculate mesh features in parallel if the dataset is large
+    if parallel_config.enabled and is_parallelizable(len(all_points), parallel_config):
+        logger.info(f"Computing mesh features in parallel for {len(all_points)} points")
+        mesh_features = extract_mesh_features_parallel(
+            all_points, 
+            compute_bbox=True, 
+            compute_center=True,
+            config=parallel_config
+        )
+        bbox_min = mesh_features['bbox_min']
+        bbox_max = mesh_features['bbox_max']
+    else:
+        # Standard sequential computation
+        bbox_min = np.min(all_points, axis=0)
+        bbox_max = np.max(all_points, axis=0)
+    
+    # Scale the mesh if needed
+    scale = 1.0
+    if auto_scale:
+        # Calculate bounding box size
+        bbox_size = np.max(bbox_max - bbox_min)
+        
+        # If the geometry is very small, scale it up for better visualization
+        if bbox_size < 1e-3:
+            scale = 1.0 / bbox_size
+            logger.info(f"Auto-scaling very small geometry by factor of {scale}")
+    
+    # Apply manual scaling if provided
+    if scale_factor is not None:
+        scale = scale_factor
+        logger.info(f"Applied manual scaling factor of {scale}")
+    
+    # Apply scaling to all points if needed
+    if scale != 1.0:
+        all_points = all_points * scale
+        for zone_name in patches:
+            patches[zone_name] = patches[zone_name] * scale
+        
+        # Scale FFD control points if present
+        if ffd_control_points is not None:
+            ffd_control_points = ffd_control_points * scale
+    
     # Define a colormap for patches
     colors = plt.cm.tab20.colors
     
@@ -431,12 +542,17 @@ def visualize_mesh_with_patches_pyvista(
     for i, (patch_name, patch_points) in enumerate(patches.items()):
         # Limit the number of points for better performance
         if len(patch_points) > max_points_per_zone:
-            # Randomly sample points
-            indices = np.random.choice(len(patch_points), max_points_per_zone, replace=False)
-            display_points = patch_points[indices]
-            logger.info(f"Patch '{patch_name}': Displaying {max_points_per_zone} randomly sampled points out of {len(patch_points)}")
-        else:
-            display_points = patch_points
+            # If there are too many points, subsample for faster rendering using parallel processing
+            if parallel_config.enabled and is_parallelizable(len(patch_points), parallel_config):
+                # Parallel subsampling for large point clouds
+                logger.info(f"Subsampling zone '{patch_name}' in parallel from {len(patch_points)} to {max_points_per_zone} points")
+                patch_points = subsample_points_parallel(patch_points, max_points_per_zone, parallel_config)
+            else:
+                # Standard uniform sampling to reduce point count
+                sample_indices = np.linspace(0, len(patch_points) - 1, max_points_per_zone, dtype=int)
+                patch_points = patch_points[sample_indices]
+            
+            logger.info(f"Subsampled zone '{patch_name}' from {len(patches[patch_name])} to {len(patch_points)} points")
         
         # Get color for this patch
         if color_by_zone:
@@ -456,7 +572,7 @@ def visualize_mesh_with_patches_pyvista(
                 color = 'lightgray'
         
         # Convert points to PyVista PolyData
-        point_cloud = pv.PolyData(display_points)
+        point_cloud = pv.PolyData(patch_points)
         
         # Create a surface from points if requested
         if show_solid:
@@ -495,7 +611,7 @@ def visualize_mesh_with_patches_pyvista(
         
         # Add label for this patch at its centroid
         if point_cloud.n_points > 0:
-            centroid = np.mean(display_points, axis=0)
+            centroid = np.mean(patch_points, axis=0)
             plotter.add_point_labels(
                 [centroid], 
                 [patch_name], 
@@ -604,3 +720,16 @@ def visualize_mesh_with_patches_pyvista(
     
     # Show the plot
     plotter.show()
+    
+    # Close the plotter to avoid memory leaks
+    plotter.close()
+    
+    # Report visualization timing
+    end_time = time.time()
+    logger.info(f"Visualization completed in {end_time - start_time:.2f} seconds")
+    if parallel_config.enabled:
+        logger.info(f"Used parallel processing with {parallel_config.method} method")
+        if parallel_config.max_workers:
+            logger.info(f"Used {parallel_config.max_workers} workers")
+        else:
+            logger.info("Used auto-detected number of workers")
