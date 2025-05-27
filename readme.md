@@ -1,127 +1,225 @@
-# OpenFFD - Open-Source FFD Control Box Generator
+<div align="center">
 
-<p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue.svg" />
-  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
-  <img alt="Python" src="https://img.shields.io/badge/python-3.7+-blue.svg" />
-</p>
+# OpenFFD
 
-A robust tool for generating Free-Form Deformation (FFD) control boxes for computational mesh files. This framework enables precise shape manipulation for aerodynamic optimization, structural analysis, and design workflows.
+**Modern Free-Form Deformation Control Box Generator for Computational Design**
 
-![FFD Visualization Example](/Users/pncln/Documents/tubitak/verynew/ffd_gen/ffd_view_20250521_163553.png)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Maintenance](https://img.shields.io/badge/Maintained-Yes-brightgreen.svg)](https://github.com/pncln/openffd/graphs/commit-activity)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-## 🌟 Features
+</div>
 
-- **Universal Mesh Support**: Handles Fluent mesh (.cas, .msh), VTK, STL, OBJ, Gmsh and more
-- **Selective Targeting**: Restrict FFD boxes to specific mesh zones, patches, or cell sets
-- **Multi-format Export**: Generate control points in .3df or .xyz (DAFoam) formats
-- **Advanced Visualization**: Interactive 3D plotting with complete grid visualization showing all control point connections
-- **High-Density Support**: Efficiently handles high point density grids
-- **Optimization Integration**: Direct compatibility with aerodynamic shape optimization frameworks
+## 📋 Overview
 
-## 📦 Installation
+OpenFFD is a high-performance, open-source tool for generating Free-Form Deformation (FFD) control boxes for computational mesh files. This framework enables precise shape manipulation for aerodynamic optimization, structural analysis, and design workflows.
 
-<!-- ### From PyPI
+The software leverages parallel processing capabilities for handling large-scale meshes efficiently, making it suitable for industrial-grade CFD and FEA applications.
 
-```bash
-pip install ffd-generator
-``` -->
+<div align="center">
+  <img src="https://github.com/pncln/openffd/raw/main/docs/images/ffd_visualization.png" alt="FFD Visualization Example" width="700px">
+</div>
+
+## ✨ Key Features
+
+- **Universal Mesh Support**: Processes Fluent mesh (.cas, .msh), VTK, STL, OBJ, Gmsh and more through a unified interface
+- **Parallel Processing**: Utilizes multi-core processing for handling large-scale meshes with millions of points efficiently
+- **Selective Targeting**: Targets specific mesh zones, patches, or cell sets for precise control
+- **Multi-format Export**: Exports control points in .3df (standard) or .xyz (DAFoam-compatible) formats
+- **Advanced Visualization**: Provides interactive 3D visualization with complete grid connectivity display
+- **Plot3D Integration**: Supports direct export to Plot3D format for CFD post-processing
+- **Modular Architecture**: Features a clean, extensible codebase using modern Python packaging standards
+- **Optimization Integration**: Offers seamless compatibility with aerodynamic shape optimization frameworks
+
+## 🚀 Installation
 
 ### From Source
 
 ```bash
-git clone https://github.com/username/ffd_generator.git
-cd ffd_generator
+git clone https://github.com/pncln/openffd.git
+cd openffd
 pip install -e .
 ```
 
-For full support of additional mesh formats:
+With optional dependencies:
 
 ```bash
+# For development tools (testing, linting)
+pip install -e ".[dev]"
+
+# For additional mesh format support
 pip install -e ".[meshio]"
+
+# For documentation building
+pip install -e ".[docs]"
+
+# For all optional dependencies
+pip install -e ".[all]"
 ```
 
-## 📖 Dependencies
+### Dependencies
 
 - **Core**: NumPy, SciPy, Matplotlib, PyVista
-- **Optional**: meshio, fluent_reader
+- **Mesh Processing**: meshio (optional)
+- **Visualization**: PyVista (>= 0.37.0)
+- **Development**: pytest, black, isort, mypy, flake8, pre-commit
 
-## 🚀 Quick Start
+## 🏁 Quick Start
 
 ```bash
 # Basic usage with default parameters
-python ffd_generator.py mesh_file.msh
+python -m openffd mesh_file.msh
 
 # Specify control lattice dimensions and visualize
-python ffd_generator.py mesh_file.stl -d 8 6 4 --plot
+python -m openffd mesh_file.stl --dims 8 6 4 --plot
 
 # Export in DAFoam compatible format with margins
-python ffd_generator.py airfoil.cas -o airfoil_ffd.xyz -m 0.05
+python -m openffd airfoil.cas --output airfoil_ffd.xyz --margin 0.05 --export-xyz
+
+# Enable parallel processing for large meshes
+python -m openffd large_mesh.msh --dims 10 10 10 --parallel
 ```
 
-## 🛠️ Usage Guide
+## 📘 Usage Guide
 
 ### Command Line Interface
 
 ```
-python ffd_generator.py <mesh_file> [options]
+python -m openffd <mesh_file> [options]
 ```
+
+#### Core Options
 
 | Option | Description |
 |--------|-------------|
 | `<mesh_file>` | Path to mesh file |
 | `-p, --patch PATCH` | Name of zone, cell set/patch or Gmsh physical group |
-| `-d, --dims N N N` | Control lattice dimensions: Nx Ny Nz (default: 4 4 4) |
-| `-m, --margin VALUE` | Margin padding around the mesh (default: 0.0) |
-| `-o, --output FILE` | Output filename: .3df or .xyz (default: ffd_box.3df) |
-| `--plot` | Visualize FFD lattice |
+| `--dims N N N` | Control lattice dimensions: Nx Ny Nz (default: 4 4 4) |
+| `--margin VALUE` | Margin padding around the mesh (default: 0.0) |
+| `--output FILE` | Output filename (default: ffd_box.3df) |
+| `--export-xyz` | Export in DAFoam-compatible .xyz format |
 
+#### Boundary Options
+
+| Option | Description |
+|--------|-------------|
+| `--x-min VALUE` | Minimum x-coordinate for custom bounds |
+| `--x-max VALUE` | Maximum x-coordinate for custom bounds |
+| `--y-min VALUE` | Minimum y-coordinate for custom bounds |
+| `--y-max VALUE` | Maximum y-coordinate for custom bounds |
+| `--z-min VALUE` | Minimum z-coordinate for custom bounds |
+| `--z-max VALUE` | Maximum z-coordinate for custom bounds |
+
+#### Visualization Options
+
+| Option | Description |
+|--------|-------------|
+| `--plot` | Visualize FFD lattice |
+| `--save-plot FILE` | Save visualization to specified file path |
+| `--show-mesh` | Show mesh points in visualization |
+| `--mesh-size VALUE` | Size of mesh points in visualization |
+| `--ffd-point-size VALUE` | Size of FFD control points |
+| `--ffd-color COLOR` | Color of FFD control points and grid |
+| `--ffd-alpha VALUE` | Opacity of FFD control points and grid |
+| `--view-axis {x,y,z,-x,-y,-z}` | View axis for visualization |
+| `--detail-level {low,medium,high}` | Detail level for mesh visualization |
+
+#### Parallel Processing Options
+
+| Option | Description |
+|--------|-------------|
+| `--parallel` | Enable parallel processing for large meshes |
+| `--no-parallel` | Disable parallel processing completely |
+| `--parallel-method {process,thread}` | Method for parallelization |
+| `--parallel-workers N` | Number of worker processes/threads |
+| `--parallel-threshold N` | Minimum data size to trigger parallelization |
+| `--parallel-viz` | Enable parallel processing for visualization only |
+
+#### Advanced Options
+
+| Option | Description |
+|--------|-------------|
 | `--debug` | Enable debug output |
 | `--force-ascii` | Force ASCII reading for Fluent mesh |
 | `--force-binary` | Force binary reading for Fluent mesh |
-| `--view-axis` | View axis for 3D visualization (default: x) |
-| `--detail-level` | Detail level for 3D visualization (default: low) |
-| `--show-original-mesh` | Show original mesh in 3D visualization |
-| `--ffd-point-size` | Size of FFD control points in 3D visualization |
-| `--ffd-color` | Color of FFD control points in 3D visualization |
-| `--ffd-alpha` | Alpha value of FFD control points in 3D visualization |
-| `--view-angle` | View angle for 3D visualization (default: 30) |
 
 
 ### Example Workflows
 
+#### Basic Workflow
+
+```bash
+# Generate and visualize an FFD box around a mesh
+python -m openffd wing.msh --dims 8 6 4 --plot
+```
+
 #### Aerodynamic Optimization
 
 ```bash
-# Generate high-resolution control box for wing optimization
-python ffd_generator.py wing.msh -p wing_surface -d 12 8 6 -o wing_ffd.xyz
+# Generate high-resolution control box for wing optimization with custom bounds
+python -m openffd wing.msh --patch wing_surface --dims 12 8 6 --output wing_ffd.xyz --export-xyz \
+    --x-min 0.0 --x-max 1.0 --y-min -0.5 --y-max 0.5
 ```
 
-#### Rocket Launch Pad Mesh
+#### Large Mesh Processing with Parallel Execution
 
 ```bash
-# Generate high-density control grid (75×50×2) for launch pad
-python ffd_generator.py launchpad.msh -d 75 50 2 --plot
+# Process a large mesh with parallel execution
+python -m openffd large_mesh.msh --dims 75 50 2 --parallel --parallel-workers 8 --plot
 ```
 
-## 📊 Visualization
+#### Export to Plot3D Format
 
-The `--plot` flag enables an interactive 3D visualization featuring:
+```bash
+# Generate an FFD box and export to Plot3D format for CFD post-processing
+python -m openffd aircraft.msh --dims 20 15 10 --output aircraft_ffd.p3d --plot
+```
 
-- Complete grid visualization with all control points connected by lines in each dimension (x, y, z)
-- Original mesh geometry or bounding box representation
-- Original face connectivity data for accurate surface representation
-- Interactive controls:
-  - **Rotate**: Click and drag
-  - **Zoom**: Scroll wheel
-  - **Pan**: Right-click and drag
-  - **Screenshot**: Press 'S' key
+## 🎨 Visualization
+
+OpenFFD provides advanced visualization capabilities for examining the generated FFD control boxes:
+
+### Interactive 3D Visualization
+
+The `--plot` flag enables a feature-rich interactive 3D visualization:
+
+- **Complete Grid Visualization**: View all control points connected by lines in each dimension (x, y, z)
+- **Original Mesh Display**: See the original mesh geometry with the FFD box overlaid
+- **Surface Representation**: Utilize face connectivity data for accurate surface rendering
+- **Zone Coloring**: Distinguish different mesh zones with automatic color assignment
+- **Parallel Processing**: Leverage multi-core capabilities for large mesh visualization
+
+### Interactive Controls
+
+- **Rotate**: Click and drag
+- **Zoom**: Scroll wheel
+- **Pan**: Right-click and drag
+- **Screenshot**: Press 'S' key
+- **Reset View**: Press 'R' key
+
+### Customization Options
+
+```bash
+# Customize visualization with point size, color, and transparency
+python -m openffd mesh.msh --plot --ffd-point-size 8.0 --ffd-color blue --ffd-alpha 0.7
+
+# View from a specific axis
+python -m openffd mesh.msh --plot --view-axis z
+
+# Use parallel processing for visualizing large meshes
+python -m openffd large_mesh.msh --plot --parallel-viz
+```
 
 ## 📄 Output Formats
 
-### .3df Format
+OpenFFD supports multiple output formats for different downstream applications:
 
-Standard FFD control box format:
+### .3df Format (Default)
+
+Standard FFD control box format that includes dimensional information:
+
 ```
 Nx Ny Nz
 x1 y1 z1
@@ -129,40 +227,132 @@ x2 y2 z2
 ...
 ```
 
-### .xyz Format
+### .xyz Format (DAFoam-compatible)
 
-DAFoam-compatible format:
+A simplified format compatible with DAFoam and other optimization frameworks:
+
 ```
 x1 y1 z1
 x2 y2 z2
 ...
 ```
 
+Enable with the `--export-xyz` flag.
+
+### Plot3D Format
+
+Structured grid format widely used in CFD applications, with proper connectivity information preserved:
+
+```
+Ni Nj Nk
+x1 y1 z1
+x2 y2 z2
+...
+```
+
+This format maintains the structured nature of the control lattice, making it ideal for CFD post-processing.
+
 ## 🔄 Integration with Optimization
 
-The FFD control boxes generated with this tool can be seamlessly integrated with:
+OpenFFD is designed to integrate seamlessly with various optimization frameworks:
 
-- **DAFoam**: Direct integration for aerodynamic shape optimization
+### Aerodynamic Shape Optimization
+
+- **DAFoam**: Direct integration for gradient-based aerodynamic shape optimization
+- **SU2**: Compatible with the SU2 CFD suite's deformation tools
+- **OpenMDAO**: Ready for inclusion in multidisciplinary optimization workflows
+
+### General Purpose Optimization
+
+- **PyOpt**: Integration with Python-based optimization frameworks
 - **SWIG FFD**: Compatible with FFD libraries using SWIG bindings
-- **PyOpt**: Ready for inclusion in Python-based optimization workflows
+- **Custom Frameworks**: Simple API allows easy integration with proprietary tools
 
-## 📝 License
+### Example Integration
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+```python
+from openffd.core.control_box import create_ffd_box
+from openffd.mesh.general import read_general_mesh
+
+# Read mesh
+mesh_points = read_general_mesh("wing.msh")
+
+# Create FFD control box
+control_points, bbox = create_ffd_box(
+    mesh_points, 
+    control_dim=(10, 8, 6), 
+    margin=0.05
+)
+
+# Use in optimization framework
+# ...
+```
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📚 Citation
 
-If you use this tool in your research, please cite:
+If you use OpenFFD in your research, please cite:
 
 ```bibtex
 @software{openffd,
   author    = {Emil Mammadli},
-  title     = {OpenFFD -- Open-Source FFD Control Box Generator},
+  title     = {OpenFFD: A High-Performance Free-Form Deformation Tool for Computational Design},
   year      = {2025},
+  month     = {5},
   publisher = {GitHub},
-  url       = {https://github.com/pncln/openffd}
+  url       = {https://github.com/pncln/openffd},
+  version   = {1.1.0}
 }
 ```
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ by Emil Mammadli and contributors.</sub>
+</div>
+
+## 🧩 Project Structure
+
+OpenFFD follows a modern Python package structure:
+
+```
+openffd/
+├── docs/                 # Documentation
+├── src/
+│   └── openffd/          # Main package
+│       ├── cli/          # Command-line interface
+│       ├── core/         # Core FFD functionality
+│       ├── io/           # Input/output operations
+│       ├── mesh/         # Mesh handling utilities
+│       ├── utils/        # Utility functions
+│       └── visualization/ # Visualization tools
+├── tests/                # Test suite
+├── pyproject.toml        # Package configuration
+├── LICENSE               # MIT License
+└── README.md            # This file
+```
+
+## 🔍 Advanced Features
+
+### Parallel Processing
+
+OpenFFD utilizes parallel processing for handling large meshes efficiently:
+
+```bash
+# Enable parallel processing with 8 worker processes
+python -m openffd large_mesh.msh --parallel --parallel-workers 8
+
+# Use thread-based parallelism for lower memory usage
+python -m openffd large_mesh.msh --parallel --parallel-method thread
+
+# Adjust parallelization threshold
+python -m openffd mesh.msh --parallel --parallel-threshold 500000
+```
+
+For more details, see the [Parallel Processing Guide](docs/parallel_processing.md).
 
 ## 🤝 Contributing
 
@@ -170,11 +360,14 @@ Contributions are welcome! Here's how you can help:
 
 1. Fork the repository
 2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add some amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+3. Install development dependencies: `pip install -e ".[dev]"`
+4. Set up pre-commit hooks: `pre-commit install`
+5. Make your changes (ensure tests pass and code is formatted)
+6. Commit your changes: `git commit -m 'Add amazing feature'`
+7. Push to the branch: `git push origin feature/amazing-feature`
+8. Open a Pull Request
 
 ## 🙏 Acknowledgments
 
 - Thanks to all contributors who have helped shape this project
-- Special thanks to the computational design community for valuable feedback
+- Special thanks to the computational design and CFD communities for valuable feedback
