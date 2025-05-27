@@ -165,4 +165,5 @@ cython_debug/
 *.png
 usage.txt
 *.3df
-*.tex
+# *.tex
+report
