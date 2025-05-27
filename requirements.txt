@@ -1,3 +1,0 @@
-numpy>=1.20.0
-matplotlib>=3.4.0
-meshio>=5.0.0 # Optional dependency for non-Fluent meshes
