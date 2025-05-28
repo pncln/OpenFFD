@@ -147,33 +147,30 @@ class ZoneExtractor:
     supported by meshio.
     """
     
-    def __init__(
-        self,
-        mesh_file: str,
-        parallel_config: Optional[ParallelConfig] = None
-    ):
-        """Initialize a ZoneExtractor object.
+    def __init__(self, mesh_file_or_obj: Union[str, Any], is_fluent: bool = False):
+        """Initialize the zone extractor.
         
         Args:
-            mesh_file: Path to the mesh file
-            parallel_config: Configuration for parallel processing
+            mesh_file_or_obj: Path to the mesh file or a pre-loaded mesh object
+            is_fluent: Whether the mesh is in Fluent format
         """
-        self.mesh_file = mesh_file
-        self.parallel_config = parallel_config
+        if isinstance(mesh_file_or_obj, str):
+            self._mesh_file = mesh_file_or_obj
+            self._mesh = None
+        else:
+            # Use a pre-loaded mesh object
+            self._mesh = mesh_file_or_obj
+            self._mesh_file = getattr(mesh_file_or_obj, 'filename', 'preloaded_mesh')
+            
+        self._is_fluent = is_fluent
+        self._zones = {}  # name -> ZoneInfo
+        self._loaded = False if self._mesh is None else True
         
-        # Initialize mesh data
-        self._mesh = None
-        self._zones: Dict[str, ZoneInfo] = {}
-        self._loaded = False
+        # Track debug info
+        self._debug_info = {}
         
-        # Detect mesh format
-        self._is_fluent = self._detect_fluent_mesh()
-        
-        # Cache for extracted zones
-        self._extracted_zones: Dict[str, Any] = {}
-        
-        logger.debug(f"Initialized ZoneExtractor for {mesh_file} (Fluent format: {self._is_fluent})")
-    
+        logger.debug(f"Initialized ZoneExtractor for {self._mesh_file} (Fluent format: {is_fluent})")
+
     def _detect_fluent_mesh(self) -> bool:
         """Detect if the mesh file is in Fluent format.
         
@@ -181,7 +178,7 @@ class ZoneExtractor:
             True if the mesh is in Fluent format, False otherwise
         """
         from openffd.mesh.general import is_fluent_mesh
-        return is_fluent_mesh(self.mesh_file)
+        return is_fluent_mesh(self._mesh_file)
     
     def _load_mesh(self) -> None:
         """Load the mesh and extract zone information."""
@@ -202,34 +199,121 @@ class ZoneExtractor:
         self._loaded = True
     
     def _load_fluent_mesh(self) -> None:
-        """Load a Fluent mesh and extract zone information."""
-        from openffd.mesh.fluent import FluentMeshReader
+        """Load a Fluent mesh and extract zone information using our custom parser."""
+        from openffd.mesh.fluent_parser import read_fluent_mesh
         
-        reader = FluentMeshReader(self.mesh_file)
-        self._mesh = reader
+        logger.info(f"Loading Fluent mesh using custom parser: {self.mesh_file}")
+        fluent_mesh = read_fluent_mesh(self.mesh_file, debug=True)
+        self._mesh = fluent_mesh
         
-        # Extract zone information from Fluent mesh
-        for zone_name, zone_data in reader.zones.items():
-            zone_type = ZoneType.UNKNOWN
-            if zone_data.get('type') == 'interior':
-                zone_type = ZoneType.VOLUME
-            elif zone_data.get('type') == 'wall' or zone_data.get('type') == 'pressure-outlet':
-                zone_type = ZoneType.BOUNDARY
-            elif zone_data.get('type') == 'interface':
-                zone_type = ZoneType.INTERFACE
+        # Store the points
+        self._points = fluent_mesh.points
+        
+        # Process all zones from the mesh
+        zone_count = 0
+        
+        for zone_name in fluent_mesh.get_available_zones():
+            # Get the zone from the mesh
+            fluent_zone = fluent_mesh.get_zone_by_name(zone_name)
+            if not fluent_zone:
+                continue
                 
-            cell_count = len(zone_data.get('cell_indices', [])) if 'cell_indices' in zone_data else 0
-            point_count = len(self._get_zone_points(zone_name))
+            # Determine zone type
+            zone_enum_type = ZoneType.UNKNOWN
+            zone_type = fluent_zone.zone_type.lower()
             
+            if zone_type in ['interior', 'fluid']:
+                zone_enum_type = ZoneType.VOLUME
+            elif zone_type in ['wall', 'symmetry', 'pressure-outlet', 'velocity-inlet', 
+                              'pressure-inlet', 'mass-flow-inlet', 'axis']:
+                zone_enum_type = ZoneType.BOUNDARY
+            elif zone_type in ['interface', 'periodic', 'fan', 'porous-jump', 'non-conformal-interface']:
+                zone_enum_type = ZoneType.INTERFACE
+            
+            # Get statistics
+            zone_stats = fluent_zone.get_stats()
+            cell_count = zone_stats['cells']
+            point_count = zone_stats['nodes']
+            
+            # Build metadata
+            metadata = {
+                'type': zone_type,
+                'name': zone_name,
+                'element_type': fluent_zone.element_type,
+                'id': fluent_zone.id,
+                'face_count': zone_stats['faces']
+            }
+            
+            # Add any additional properties from the zone
+            metadata.update(fluent_zone.properties)
+            
+            # Create zone info
             zone_info = ZoneInfo(
                 name=zone_name,
-                zone_type=zone_type,
+                zone_type=zone_enum_type,
                 cell_count=cell_count,
                 point_count=point_count,
-                metadata=copy.deepcopy(zone_data)
+                metadata=metadata
             )
             
+            # Add to our zones dictionary
             self._zones[zone_name] = zone_info
+            zone_count += 1
+            
+            logger.info(f"Added zone {zone_name} (Type: {zone_type}) with {point_count} points and {cell_count} cells")
+        
+        logger.info(f"Loaded {zone_count} zones from Fluent mesh")
+        
+        # If no zones were found, create default zones based on element types
+        if zone_count == 0:
+            logger.warning("No zones found in Fluent mesh, creating default zones")
+            
+            # Create default volume and boundary zones
+            if len(fluent_mesh.cells) > 0:
+                # Create a default volume zone for all cells
+                volume_zone_name = "fluid_volume"
+                
+                # Count cells and points
+                cell_count = len(fluent_mesh.cells)
+                point_indices = set()
+                for cell_id, cell in fluent_mesh.cells.items():
+                    for node_id in cell.node_indices:
+                        point_indices.add(node_id)
+                
+                # Create zone info
+                zone_info = ZoneInfo(
+                    name=volume_zone_name,
+                    zone_type=ZoneType.VOLUME,
+                    cell_count=cell_count,
+                    point_count=len(point_indices),
+                    metadata={'type': 'fluid', 'name': 'volume', 'auto_created': True}
+                )
+                
+                self._zones[volume_zone_name] = zone_info
+                logger.info(f"Created default volume zone with {cell_count} cells")
+            
+            if len(fluent_mesh.faces) > 0:
+                # Create a default boundary zone for all faces
+                boundary_zone_name = "wall_boundary"
+                
+                # Count faces and points
+                face_count = len(fluent_mesh.faces)
+                point_indices = set()
+                for face_id, face in fluent_mesh.faces.items():
+                    for node_id in face.node_indices:
+                        point_indices.add(node_id)
+                
+                # Create zone info
+                zone_info = ZoneInfo(
+                    name=boundary_zone_name,
+                    zone_type=ZoneType.BOUNDARY,
+                    cell_count=face_count,  # For boundaries, faces are the cells
+                    point_count=len(point_indices),
+                    metadata={'type': 'wall', 'name': 'boundary', 'auto_created': True}
+                )
+                
+                self._zones[boundary_zone_name] = zone_info
+                logger.info(f"Created default boundary zone with {face_count} faces")
     
     def _load_general_mesh(self) -> None:
         """Load a general mesh using meshio and extract zone information."""
@@ -390,70 +474,11 @@ class ZoneExtractor:
         
         zones_detected = False
         
-        # Create a zone for each unique value
-        for value in unique_values:
-            if isinstance(value, (str, bytes)) and isinstance(value, bytes):
-                try:
-                    value = value.decode('utf-8')
-                except UnicodeDecodeError:
-                    continue
-            
-            zone_name = f"{field_name}_{value}" if not isinstance(value, str) else value
-            
-            # Extract cells and points for this zone
-            cell_count = 0
-            point_indices = set()
+        # Create default zone with all points
+        if hasattr(self._mesh, 'points') and len(self._mesh.points) > 0:
             element_types = set()
             
-            for i, data_array in enumerate(self._mesh.cell_data[field_name]):
-                if i >= len(self._mesh.cells):
-                    continue
-                    
-                if isinstance(value, (int, float)) and np.issubdtype(data_array.dtype, np.number):
-                    mask = data_array == value
-                elif isinstance(value, str) and isinstance(data_array[0], (str, bytes)):
-                    mask = np.array([str(v) == value for v in data_array])
-                else:
-                    continue
-                
-                if np.any(mask):
-                    cell_count += np.sum(mask)
-                    element_types.add(self._mesh.cells[i].type)
-                    cells = self._mesh.cells[i].data[mask]
-                    for conn in cells:
-                        point_indices.update(conn.tolist())
-            
-            if cell_count > 0:
-                zones_detected = True
-                # Determine zone type based on element types
-                zone_type = self._determine_zone_type(element_types)
-                
-                zone_info = ZoneInfo(
-                    name=zone_name,
-                    zone_type=zone_type,
-                    cell_count=cell_count,
-                    point_count=len(point_indices),
-                    element_types=element_types,
-                    metadata={"field": field_name, "value": value}
-                )
-                
-                self._zones[zone_name] = zone_info
-                
-        return zones_detected
-                
-    def _create_default_zones(self) -> None:
-        """Create default zones when none are found in the mesh.
-        
-        This method creates zones based on geometry and cell types when
-        no explicit zone information is present in the mesh.
-        """
-        logger.warning("No zones found in mesh. Creating default zones...")
-        
-        # Print debug info about the mesh
-        self._debug_print_mesh_info()
-        
-        # Always create a default zone with all points as an absolute fallback
-        if hasattr(self._mesh, 'points') and len(self._mesh.points) > 0:
+            # Create zone info
             zone_info = ZoneInfo(
                 name="default",
                 zone_type=ZoneType.VOLUME,
@@ -651,7 +676,7 @@ class ZoneExtractor:
             logger.warning("  - Mesh has no point_data attribute")
             
         # Print mesh file path
-        logger.warning(f"  - Mesh file: {self.mesh_file}")
+        logger.warning(f"  - Mesh file: {self._mesh_file}")
     
     def _get_cell_faces(self, cell: np.ndarray, cell_type: str) -> List[List[int]]:
         """Extract faces from a volume cell.
@@ -919,6 +944,50 @@ class ZoneExtractor:
         
         self._extracted_zones[zone_name] = submesh
         return submesh
+        
+    def _create_default_zones(self) -> None:
+        """Create default zones when none are found in the mesh.
+        
+        This method creates zones based on geometry and cell types when
+        no explicit zone information is present in the mesh.
+        """
+        logger.warning("No zones found in mesh, creating default zones")
+        
+        # Print debug info about the mesh
+        self._debug_print_mesh_info()
+        
+        # Initialize data structures for zone tracking if they don't exist
+        if not hasattr(self, '_zone_node_indices'):
+            self._zone_node_indices = {}
+        if not hasattr(self, '_zone_faces'):
+            self._zone_faces = {}
+        if not hasattr(self, '_zone_face_types'):
+            self._zone_face_types = {}
+        
+        # Always create a default zone with all points as an absolute fallback
+        if hasattr(self._mesh, 'points') and len(self._mesh.points) > 0:
+            # Create zone info
+            zone_info = ZoneInfo(
+                name="default",
+                zone_type=ZoneType.VOLUME,
+                cell_count=0,
+                point_count=len(self._mesh.points),
+                element_types=set(),
+                metadata={"auto_created": True, "contains_all_points": True}
+            )
+            self._zones["default"] = zone_info
+            self._zone_node_indices["default"] = list(range(len(self._mesh.points)))
+            self._zone_faces["default"] = []
+            self._zone_face_types["default"] = []
+            logger.warning(f"Created default zone with {len(self._mesh.points)} points")
+            
+            # If the mesh has cells, add them to the default zone
+            if hasattr(self._mesh, 'cells') and self._mesh.cells:
+                for i, cell_block in enumerate(self._mesh.cells):
+                    for cell in cell_block.data:
+                        self._zone_faces["default"].append(list(cell))
+                        self._zone_face_types["default"].append(cell_block.type)
+                logger.info(f"Added {len(self._zone_faces['default'])} cells to default zone")
     
     def get_zone_names(self, zone_type: Optional[ZoneType] = None) -> List[str]:
         """Get names of all available zones, optionally filtered by type.
@@ -932,10 +1001,46 @@ class ZoneExtractor:
         if not self._loaded:
             self._load_mesh()
             
+        # If no zones were detected, create default zones
+        if not self._zones:
+            logger.warning("No zones found in get_zone_names, creating default zones")
+            self._create_default_zones()
+            
+        # Still no zones? Create a forced default zone with all points
+        if not self._zones and hasattr(self._mesh, 'points') and len(self._mesh.points) > 0:
+            logger.warning("Creating forced default zone with all points")
+            zone_info = ZoneInfo(
+                name="default_all_points",
+                zone_type=ZoneType.VOLUME if zone_type is None else zone_type,
+                cell_count=0,
+                point_count=len(self._mesh.points),
+                element_types=set(),
+                metadata={"auto_created": True, "forced": True}
+            )
+            self._zones["default_all_points"] = zone_info
+            
         if zone_type is None:
             return list(self._zones.keys())
             
-        return [name for name, info in self._zones.items() if info.zone_type == zone_type]
+        zone_names = [name for name, info in self._zones.items() if info.zone_type == zone_type]
+        
+        # If filtering by zone type results in no zones, but we have zones of other types,
+        # create a default zone of the requested type
+        if not zone_names and self._zones and hasattr(self._mesh, 'points') and len(self._mesh.points) > 0:
+            logger.warning(f"Creating forced default zone of type {zone_type.name}")
+            zone_name = f"default_{zone_type.name.lower()}"
+            zone_info = ZoneInfo(
+                name=zone_name,
+                zone_type=zone_type,
+                cell_count=0,
+                point_count=len(self._mesh.points),
+                element_types=set(),
+                metadata={"auto_created": True, "forced": True, "zone_type_specific": True}
+            )
+            self._zones[zone_name] = zone_info
+            zone_names = [zone_name]
+            
+        return zone_names
     
     def get_zone_info(self, zone_name: Optional[str] = None) -> Union[ZoneInfo, Dict[str, ZoneInfo]]:
         """Get information about zones.

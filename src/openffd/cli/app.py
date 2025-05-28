@@ -294,9 +294,13 @@ def main() -> int:
         return 1
     
     try:
+        # Track mesh format for later use
+        mesh_format = 'unknown'
+        
         # Determine mesh type and read accordingly
         if is_fluent_mesh(args.mesh_file):
             # Read Fluent mesh
+            mesh_format = 'fluent'
             reader_options = {
                 "debug": args.debug
             }
@@ -323,6 +327,7 @@ def main() -> int:
                 logger.info(f"Using all {len(mesh.points)} mesh points to build FFD box")
         else:
             # Use general mesh reader for other formats
+            mesh_format = 'general'
             try:
                 mesh = read_general_mesh(args.mesh_file)
                 if args.patch:
@@ -360,9 +365,16 @@ def main() -> int:
             threshold=args.parallel_threshold
         )
         
+        # Pass the loaded mesh to the zone extractor
         # Process zone extractor commands if any
         try:
-            if process_zone_extractor_command(args, parallel_config):
+            from openffd.cli.zone_extractor import process_zone_extractor_command_with_mesh
+            
+            # If zone extractor commands are specified, use the already loaded mesh
+            # Determine if this is a Fluent mesh
+            mesh_is_fluent = mesh_format == 'fluent'
+            
+            if process_zone_extractor_command_with_mesh(args, mesh, parallel_config, mesh_is_fluent):
                 # If zone extractor commands were processed successfully and no further
                 # processing is needed (e.g., just listing zones), return success
                 if args.list_zones and not (args.plot or args.output):
