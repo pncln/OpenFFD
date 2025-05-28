@@ -12,8 +12,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import to_rgba
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+# Import the level_grid utility for properly reshaping control points
+from openffd.visualization.level_grid import try_create_level_grid, create_boundary_edges
 
 from openffd.utils.parallel import ParallelConfig, is_parallelizable, parallel_process
 from openffd.visualization.parallel_viz import (
@@ -639,35 +643,44 @@ def visualize_mesh_with_patches_pyvista(
         if show_ffd_mesh and ffd_box_dims is not None and len(ffd_box_dims) == 3:
             nx, ny, nz = ffd_box_dims
             
-            try:
-                # Reshape control points for easier grid creation
-                cp_reshaped = ffd_control_points.reshape(nx, ny, nz, 3)
+            # Try to reshape control points using our specialized grid utility
+            grid_points = try_create_level_grid(ffd_control_points, ffd_box_dims)
+            
+            if grid_points is not None:
+                # Successfully reshaped to grid, create lattice lines
+                nx, ny, nz = ffd_box_dims
                 
                 # Create grid lines
                 for i in range(nx):
                     for j in range(ny):
                         # Create a line through control points
-                        line = pv.Line(cp_reshaped[i,j,0], cp_reshaped[i,j,-1], resolution=nz-1)
+                        line = pv.Line(grid_points[i,j,0], grid_points[i,j,-1], resolution=nz-1)
                         # Add the line to the plotter
                         plotter.add_mesh(line, color=ffd_color, opacity=ffd_opacity, line_width=ffd_point_size/2)
                         
                 for i in range(nx):
                     for k in range(nz):
                         # Create a line through control points
-                        line = pv.Line(cp_reshaped[i,0,k], cp_reshaped[i,-1,k], resolution=ny-1)
+                        line = pv.Line(grid_points[i,0,k], grid_points[i,-1,k], resolution=ny-1)
                         # Add the line to the plotter
                         plotter.add_mesh(line, color=ffd_color, opacity=ffd_opacity, line_width=ffd_point_size/2)
                         
                 for j in range(ny):
                     for k in range(nz):
                         # Create a line through control points
-                        line = pv.Line(cp_reshaped[0,j,k], cp_reshaped[-1,j,k], resolution=nx-1)
+                        line = pv.Line(grid_points[0,j,k], grid_points[-1,j,k], resolution=nx-1)
                         # Add the line to the plotter
                         plotter.add_mesh(line, color=ffd_color, opacity=ffd_opacity, line_width=ffd_point_size/2)
             
-            except (ValueError, RuntimeError) as e:
-                logger.warning(f"Could not reshape control points to dimensions {ffd_box_dims}: {e}")
-                logger.warning("Visualizing control points without grid structure")
+            else:
+                # Could not reshape to grid - just display points without grid structure
+                # For hierarchical FFD, this is normal since each level has different dimensions
+                if len(ffd_control_points) != nx * ny * nz:
+                    logger.debug(f"FFD control points don't match dimensions {ffd_box_dims}: {len(ffd_control_points)} points vs {nx*ny*nz} expected")
+                    logger.debug("This is normal for hierarchical FFD with different level dimensions")
+                else:
+                    logger.warning(f"Could not create grid structure for control points with dimensions {ffd_box_dims}")
+                    logger.warning("Visualizing control points without grid structure")
     
     # Show axes if requested
     if show_axes:

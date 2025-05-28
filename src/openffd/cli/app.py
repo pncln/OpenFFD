@@ -15,6 +15,7 @@ import numpy as np
 
 from openffd.core.config import FFDConfig
 from openffd.core.control_box import create_ffd_box, extract_patch_points
+from openffd.core.hierarchical import create_hierarchical_ffd, HierarchicalFFD
 from openffd.io.export import write_ffd_3df, write_ffd_xyz
 from openffd.mesh.fluent import FluentMeshReader
 from openffd.mesh.general import read_general_mesh, is_fluent_mesh
@@ -23,6 +24,15 @@ from openffd.visualization.ffd_viz import visualize_ffd
 from openffd.visualization.mesh_viz import (
     visualize_mesh_with_patches,
     visualize_mesh_with_patches_pyvista,
+)
+from openffd.visualization.hierarchical_viz import (
+    visualize_hierarchical_ffd_pyvista,
+    visualize_hierarchical_ffd_matplotlib,
+    visualize_influence_distribution
+)
+from openffd.cli.hierarchical import (
+    add_hierarchical_ffd_args,
+    process_hierarchical_ffd_command
 )
 
 
@@ -76,7 +86,7 @@ def parse_arguments() -> argparse.Namespace:
     
     # Visualization control group
     viz_group = parser.add_argument_group('visualization', 'Control visualization options')
-    viz_group.add_argument('--plot', action='store_true', help='Visualize FFD lattice')
+    viz_group.add_argument('--plot', action='store_true', help='Visualize FFD lattice (automatically shows mesh points)')
     viz_group.add_argument('--save-plot', type=str, default=None, help='Save visualization to specified file path')
     viz_group.add_argument('--show-mesh', action='store_true', help='Show mesh points in visualization')
     viz_group.add_argument('--mesh-only', action='store_true', help='Show only the mesh without FFD box')
@@ -135,6 +145,9 @@ def parse_arguments() -> argparse.Namespace:
                            help='Enable parallel processing for visualization only')
     parallel_group.add_argument('--no-parallel-viz', action='store_true',
                            help='Disable parallel processing for visualization even if parallel is enabled')
+    
+    # Add hierarchical FFD arguments
+    add_hierarchical_ffd_args(parser)
     
     return parser.parse_args()
 
@@ -348,13 +361,48 @@ def main() -> int:
                 threshold=args.parallel_threshold
             )
             
+            # Check if hierarchical FFD is requested
             start_time = time.time()
-            cps, bbox = create_ffd_box(pts, tuple(args.dims), args.margin, custom_dims, parallel_config)
-            end_time = time.time()
             
+            if args.hierarchical:
+                # Create hierarchical FFD
+                # Use base_dims if specified, otherwise fall back to dims
+                base_dims = tuple(args.base_dims if args.base_dims is not None else args.dims)
+                logger.info(f"Creating hierarchical FFD with base dimensions {base_dims}")
+                logger.info(f"Max depth: {args.max_depth}, Subdivision factor: {args.subdivision_factor}")
+                
+                hffd = create_hierarchical_ffd(
+                    mesh_points=pts,
+                    base_dims=base_dims,
+                    max_depth=args.max_depth,
+                    subdivision_factor=args.subdivision_factor,
+                    parallel_config=parallel_config,
+                    custom_dims=custom_dims,  # Pass custom bounds (--x-min, --y-max, etc.)
+                    margin=args.margin  # Pass margin parameter
+                )
+                
+                # Extract information from hierarchical levels
+                cps = hffd.root_level.control_points
+                control_dim = hffd.root_level.dims
+                bbox = hffd.root_level.bbox
+                
+                # Print information about levels
+                logger.info(f"Created hierarchical FFD with {len(hffd.levels)} levels:")
+                for level_info in hffd.get_level_info():
+                    logger.info(
+                        f"  Level {level_info['level_id']} (depth {level_info['depth']}): "
+                        f"{level_info['dims']} dims, {level_info['num_control_points']} control points, "
+                        f"weight: {level_info['weight_factor']:.2f}"
+                    )
+            else:
+                # Create standard FFD box
+                logger.info(f"Creating standard FFD box with dimensions {tuple(args.dims)}")
+                cps, bbox = create_ffd_box(pts, tuple(args.dims), args.margin, custom_dims, parallel_config)
+                control_dim = tuple(args.dims)  # Define control_dim based on args.dims
+            
+            end_time = time.time()
             logger.info(f'Bounding box min: {bbox[0]}, max: {bbox[1]}')
-            logger.info(f'Control box dimensions: {args.dims} ({cps.shape[0]} control points)')
-            logger.info(f'FFD box creation completed in {end_time - start_time:.2f} seconds')
+            logger.info(f'FFD creation completed in {end_time - start_time:.2f} seconds')
             
             # Log parallel processing status
             if parallel_config.enabled and len(pts) >= parallel_config.threshold:
@@ -465,32 +513,155 @@ def main() -> int:
         
         # Visualize FFD box if requested
         if args.plot or args.save_plot:
+            # When --plot is specified, automatically show the mesh too
+            if args.plot:
+                args.show_mesh = True
             try:
-                visualize_ffd(
-                    cps, 
-                    bbox,
-                    mesh_points=pts if args.show_mesh else None,
-                    mesh_only=args.mesh_only,
-                    title=f"FFD Control Box: {os.path.basename(args.mesh_file)}",
-                    save_path=args.save_plot,
-                    dims=args.dims,
-                    ffd_point_size=args.ffd_point_size,
-                    ffd_color=args.ffd_color,
-                    ffd_alpha=args.ffd_alpha,
-                    mesh_point_size=args.mesh_size,
-                    mesh_alpha=args.mesh_alpha,
-                    mesh_color=args.mesh_color,
-                    show_full_grid=args.show_full_ffd_grid,
-                    lattice_width=args.lattice_width,
-                    control_point_size=args.control_point_size,
-                    hide_control_points=args.hide_control_points,
-                    view_angle=tuple(args.view_angle) if args.view_angle else None,
-                    view_axis=args.view_axis,
-                    auto_scale=not args.no_auto_scale,
-                    scale_factor=args.scale_factor,
-                    zoom_region=args.zoom_region,
-                    zoom_factor=args.zoom_factor
-                )
+                # Determine if we should use parallel processing for visualization
+                use_parallel_viz = parallel_config.enabled
+                if args.parallel_viz is not None:
+                    use_parallel_viz = args.parallel_viz
+                if args.no_parallel_viz:
+                    use_parallel_viz = False
+                
+                logger.info(f"Parallel processing for visualization: {'enabled' if use_parallel_viz else 'disabled'}")
+                
+                viz_parallel_config = None
+                if use_parallel_viz:
+                    viz_parallel_config = parallel_config
+                
+                # If hierarchical FFD, use specialized visualization
+                if args.hierarchical and 'hffd' in locals():
+                    try:
+                        logger.info("Visualizing hierarchical FFD structure")
+                        
+                        # Log the information about what's being visualized
+                        logger.info(f"Showing {len(hffd.levels)} hierarchical levels")
+                        if args.show_levels:
+                            logger.info(f"Displaying specific levels: {args.show_levels}")
+                        
+                        logger.info(f"Show influence regions: {args.show_influence}")
+                        
+                        # Select a subset of mesh points for influence visualization to avoid overwhelming display
+                        if args.show_influence and len(pts) > 5000:
+                            logger.info(f"Subsampling mesh points for influence visualization (original: {len(pts)} points)")
+                            # Use systematic sampling to get representative points
+                            sample_rate = max(1, len(pts) // 5000)
+                            sample_indices = np.arange(0, len(pts), sample_rate)
+                            sampled_pts = pts[sample_indices]
+                            logger.info(f"Using {len(sampled_pts)} sampled points for influence visualization")
+                        else:
+                            sampled_pts = pts
+                        
+                        visualize_hierarchical_ffd_pyvista(
+                            hffd=hffd,
+                            show_levels=args.show_levels,
+                            title=f"Hierarchical FFD for {os.path.basename(args.mesh_file)}",
+                            save_path=args.save_plot,
+                            mesh_points=sampled_pts if (args.show_mesh or args.mesh_only) else None,
+                            show_mesh=args.show_mesh or args.mesh_only,
+                            mesh_size=args.mesh_size,
+                            mesh_alpha=args.mesh_alpha,
+                            mesh_color=args.mesh_color,
+                            point_size=args.control_point_size,
+                            line_width=args.lattice_width,
+                            color_by_level=True,
+                            show_influence=args.show_influence,
+                            view_axis=args.view_axis,
+                            off_screen=False  # Force interactive display
+                        )
+                        
+                        # Show influence distribution if requested
+                        if args.show_influence:
+                            logger.info("Generating influence distribution plot")
+                            influence_save_path = None
+                            if args.save_plot:
+                                influence_save_path = os.path.splitext(args.save_plot)[0] + "_influence.png"
+                            
+                            visualize_influence_distribution(
+                                hffd=hffd,
+                                mesh_points=sampled_pts,
+                                save_path=influence_save_path
+                            )
+                    except Exception as e:
+                        if args.debug:
+                            logger.exception("PyVista visualization failed, falling back to Matplotlib")
+                        else:
+                            logger.warning(f"PyVista visualization failed ({str(e)}), falling back to Matplotlib")
+                        
+                        # Fall back to Matplotlib for hierarchical FFD
+                        visualize_hierarchical_ffd_matplotlib(
+                            hffd=hffd,
+                            show_levels=args.show_levels,
+                            title=f"Hierarchical FFD for {os.path.basename(args.mesh_file)}",
+                            save_path=args.save_plot,
+                            mesh_points=pts if (args.show_mesh or args.mesh_only) else None,
+                            show_mesh=args.show_mesh or args.mesh_only,
+                            mesh_size=args.mesh_size,
+                            mesh_alpha=args.mesh_alpha,
+                            mesh_color=args.mesh_color,
+                            point_size=args.control_point_size,
+                            line_width=args.lattice_width
+                        )
+                else:
+                    # Standard FFD visualization
+                    try:
+                        visualize_ffd(
+                            control_points=cps,
+                            bbox=bbox,
+                            dims=control_dim,
+                            mesh_points=pts if (args.show_mesh or args.mesh_only) else None,
+                            title=f"FFD Control Box for {os.path.basename(args.mesh_file)}",
+                            save_path=args.save_plot,
+                            use_pyvista=True,
+                            ffd_point_size=args.ffd_point_size,
+                            ffd_color=args.ffd_color,
+                            ffd_alpha=args.ffd_alpha,
+                            mesh_point_size=args.mesh_size,
+                            mesh_alpha=args.mesh_alpha,
+                            mesh_color=args.mesh_color,
+                            show_full_grid=args.show_full_ffd_grid,
+                            control_point_size=args.control_point_size,
+                            hide_control_points=args.hide_control_points,
+                            view_angle=tuple(args.view_angle) if args.view_angle else None,
+                            view_axis=args.view_axis,
+                            auto_scale=not args.no_auto_scale,
+                            scale_factor=args.scale_factor,
+                            zoom_region=args.zoom_region,
+                            zoom_factor=args.zoom_factor
+                        )
+                    except Exception as e:
+                        if args.debug:
+                            logger.exception("PyVista visualization failed, falling back to Matplotlib")
+                        else:
+                            logger.warning(f"PyVista visualization failed ({str(e)}), falling back to Matplotlib")
+                        
+                        # Fall back to Matplotlib
+                        visualize_ffd(
+                            control_points=cps,
+                            bbox=bbox,
+                            dims=control_dim,
+                            mesh_points=pts if (args.show_mesh or args.mesh_only) else None,
+                            title=f"FFD Control Box for {os.path.basename(args.mesh_file)}",
+                            save_path=args.save_plot,
+                            use_pyvista=False,
+                            ffd_point_size=args.ffd_point_size,
+                            ffd_color=args.ffd_color,
+                            ffd_alpha=args.ffd_alpha,
+                            mesh_point_size=args.mesh_size,
+                            mesh_alpha=args.mesh_alpha,
+                            mesh_color=args.mesh_color,
+                            show_full_grid=args.show_full_ffd_grid,
+                            control_point_size=args.control_point_size,
+                            hide_control_points=args.hide_control_points,
+                            view_angle=tuple(args.view_angle) if args.view_angle else None,
+                            view_axis=args.view_axis,
+                            auto_scale=not args.no_auto_scale,
+                            scale_factor=args.scale_factor,
+                            zoom_region=args.zoom_region,
+                            zoom_factor=args.zoom_factor
+                        )
+                
             except Exception as e:
                 logger.error(f"Error visualizing FFD box: {e}")
                 if args.debug:
