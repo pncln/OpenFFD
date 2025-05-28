@@ -124,6 +124,9 @@ def parse_arguments() -> argparse.Namespace:
                           help='Detail level for mesh visualization (low, medium, high)')
     viz_group.add_argument('--max-triangles', type=int, default=10000, help='Maximum number of triangles to generate for visualization')
     viz_group.add_argument('--max-points', type=int, default=5000, help='Maximum number of points to use for visualization per patch')
+    viz_group.add_argument('--show-boundary-names', action='store_true', help='Display boundary names on the mesh patches')
+    viz_group.add_argument('--text-size', type=float, default=24.0, help='Size of boundary name text labels')
+    viz_group.add_argument('--text-color', type=str, default='black', help='Color of boundary name text labels')
     
     # Advanced settings
     adv_group = parser.add_argument_group('advanced', 'Advanced settings')
@@ -522,6 +525,9 @@ def main() -> int:
                         show_ffd_mesh=True,
                         zoom_region=args.zoom_region,
                         view_axis=args.view_axis,
+                        show_boundary_names=args.show_boundary_names,
+                        text_size=args.text_size,
+                        text_color=args.text_color,
                         parallel=use_parallel_viz,
                         parallel_threshold=args.parallel_threshold,
                         parallel_workers=args.parallel_workers,

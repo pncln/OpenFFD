@@ -326,6 +326,9 @@ def visualize_mesh_with_patches_pyvista(
     zoom_factor: float = 1.0,
     view_axis: Optional[str] = None,
     ffd_box_dims: Optional[List[int]] = None,
+    show_boundary_names: bool = False,
+    text_size: float = 24.0,
+    text_color: str = 'black',
     parallel: bool = True,
     parallel_threshold: int = 100000,
     parallel_workers: Optional[int] = None
@@ -349,6 +352,9 @@ def visualize_mesh_with_patches_pyvista(
         max_points_per_zone: Maximum number of points to render per zone for performance
         skip_internal_zones: Whether to skip internal zones for faster rendering
         use_original_faces: Whether to use original face connectivity data for better edges
+        show_boundary_names: Whether to display boundary names on patches
+        text_size: Size of the boundary name text labels
+        text_color: Color of the boundary name text labels
         ffd_control_points: Optional array of FFD control points to display
         ffd_color: Color for the FFD control points and grid
         ffd_opacity: Opacity for the FFD control points and grid
@@ -592,6 +598,25 @@ def visualize_mesh_with_patches_pyvista(
                     show_edges=show_edges,
                     smooth_shading=True
                 )
+                
+                # Add boundary name as text on the patch if requested
+                if show_boundary_names and patch_type != 'interior' and patch_type != 'fluid':
+                    # Calculate the center point of the patch for text placement
+                    center = np.mean(patch_points, axis=0)
+                    
+                    # Add text label with the boundary name
+                    plotter.add_point_labels(
+                        [center],
+                        [patch_name],
+                        font_size=text_size,
+                        text_color=text_color,
+                        always_visible=True,
+                        shape=None,
+                        show_points=False,
+                        render_points_as_spheres=False,
+                        point_color=color,
+                        point_size=0
+                    )
             except Exception as e:
                 if not suppress_warnings:
                     logger.warning(f"Could not create surface for patch '{patch_name}': {e}")
@@ -599,16 +624,35 @@ def visualize_mesh_with_patches_pyvista(
                 plotter.add_mesh(
                     point_cloud, 
                     color=color, 
-                    opacity=opacity, 
-                    point_size=point_size, 
+                    opacity=opacity,
+                    point_size=point_size,
                     render_points_as_spheres=True
                 )
+                
+                # Add boundary name as text on the patch if requested
+                if show_boundary_names and patch_type != 'interior' and patch_type != 'fluid':
+                    # Calculate the center point of the patch for text placement
+                    center = np.mean(patch_points, axis=0)
+                    
+                    # Add text label with the boundary name
+                    plotter.add_point_labels(
+                        [center],
+                        [patch_name],
+                        font_size=text_size,
+                        text_color=text_color,
+                        always_visible=True,
+                        shape=None,
+                        show_points=False,
+                        render_points_as_spheres=False,
+                        point_color=color,
+                        point_size=0
+                    )
         else:
             # Just show points
             plotter.add_mesh(
                 point_cloud, 
                 color=color, 
-                opacity=opacity, 
+                opacity=opacity,
                 point_size=point_size, 
                 render_points_as_spheres=True
             )
