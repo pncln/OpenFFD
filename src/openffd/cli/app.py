@@ -34,6 +34,10 @@ from openffd.cli.hierarchical import (
     add_hierarchical_ffd_args,
     process_hierarchical_ffd_command
 )
+from openffd.cli.zone_extractor import (
+    add_zone_extractor_args,
+    process_zone_extractor_command
+)
 
 
 def setup_logging(debug_mode: bool = False) -> None:
@@ -148,6 +152,9 @@ def parse_arguments() -> argparse.Namespace:
     
     # Add hierarchical FFD arguments
     add_hierarchical_ffd_args(parser)
+    
+    # Add zone extractor arguments
+    add_zone_extractor_args(parser)
     
     return parser.parse_args()
 
@@ -342,6 +349,29 @@ def main() -> int:
         if len(pts) == 0:
             logger.error("No points found in the mesh for FFD box creation")
             return 1
+            
+        # Create parallel processing configuration
+        parallel_enabled = args.parallel and not args.no_parallel
+        parallel_config = ParallelConfig(
+            enabled=parallel_enabled,
+            method=args.parallel_method,
+            max_workers=args.parallel_workers,
+            chunk_size=args.parallel_chunk_size,
+            threshold=args.parallel_threshold
+        )
+        
+        # Process zone extractor commands if any
+        try:
+            if process_zone_extractor_command(args, parallel_config):
+                # If zone extractor commands were processed successfully and no further
+                # processing is needed (e.g., just listing zones), return success
+                if args.list_zones and not (args.plot or args.output):
+                    return 0
+        except Exception as e:
+            logger.error(f"Error processing zone extractor commands: {e}")
+            if args.debug:
+                logger.debug(traceback.format_exc())
+            # Continue with standard FFD box creation even if zone extraction fails
 
         # Create FFD box
         try:
@@ -351,15 +381,7 @@ def main() -> int:
             # Check if any custom dimensions were specified
             custom_dims = custom_dims if any(dim is not None for dim in custom_dims) else None
             
-            # Create parallel processing configuration
-            parallel_enabled = args.parallel and not args.no_parallel
-            parallel_config = ParallelConfig(
-                enabled=parallel_enabled,
-                method=args.parallel_method,
-                max_workers=args.parallel_workers,
-                chunk_size=args.parallel_chunk_size,
-                threshold=args.parallel_threshold
-            )
+            # Parallel config is already created before zone extraction
             
             # Check if hierarchical FFD is requested
             start_time = time.time()
