@@ -29,6 +29,7 @@ dependencies = [
     "matplotlib>=3.4.0",
     "pyvista>=0.34.0",
     "scipy>=1.7.0",
+    "PyQt6>=6.4.0",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +59,7 @@ Documentation = "https://openffd.readthedocs.io"
 
 [project.scripts]
 openffd = "openffd.cli.app:main"
+openffd-gui = "openffd.gui.main:launch_gui"
 
 [tool.setuptools]
 packages = ["openffd"]
