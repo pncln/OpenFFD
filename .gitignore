@@ -162,7 +162,7 @@ cython_debug/
 *.msh
 ./*.msh
 *.xyz
-*.png
+# *.png
 usage.txt
 *.3df
 # *.tex
