@@ -475,3 +475,26 @@ class SolverPanel(QWidget):
             logger.error(f"Error creating SonicAdjointInterface: {str(e)}")
             self.current_solver_interface = None
             raise
+            
+    def get_sensitivity_file(self) -> Optional[str]:
+        """Get the path to the sensitivity file from the current adjoint solver.
+        
+        Returns:
+            Path to sensitivity file or None if not available
+        """
+        if not self.current_solver_interface:
+            return None
+            
+        if not hasattr(self.current_solver_interface, 'get_sensitivity_file_path'):
+            # Only the adjoint solver interface has this method
+            return None
+            
+        try:
+            case_dir = self.case_edit.text().strip()
+            objective = self.obj_combo.currentText()
+            
+            # Try to get the sensitivity file path from the solver interface
+            return self.current_solver_interface.get_sensitivity_file_path(objective)
+        except Exception as e:
+            logger.error(f"Error getting sensitivity file path: {str(e)}")
+            return None

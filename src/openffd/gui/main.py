@@ -27,6 +27,11 @@ from openffd.gui.solver_panel import SolverPanel
 from openffd.gui.settings_dialog import SettingsDialog
 from openffd.gui.utils import setup_logger, get_icon_path, show_error_dialog
 
+# Import advanced components
+from openffd.gui.zone_extraction import ZoneExtractionPanel
+from openffd.gui.deformation_view import DeformationWidget
+from openffd.gui.sensitivity_mapper import SensitivityMapper
+
 # Import core OpenFFD functionality
 from openffd.core.config import FFDConfig
 from openffd.utils.parallel import ParallelConfig
@@ -51,7 +56,7 @@ class OpenFFDMainWindow(QMainWindow):
         self.mesh_points = None
         self.ffd_control_points = None
         self.bounding_box = None
-        self.ffd_config = FFDConfig()
+        self.ffd_config = FFDConfig(dims=(4, 4, 4))  # Default dimensions
         self.parallel_config = ParallelConfig()
         self.settings = QSettings("OpenFFD", "GUI")
         
@@ -93,9 +98,27 @@ class OpenFFDMainWindow(QMainWindow):
         self.ffd_panel = FFDPanel()
         self.tabs.addTab(self.ffd_panel, "FFD")
         
-        # Solver tab (if needed)
+        # Solver tab
         self.solver_panel = SolverPanel()
         self.tabs.addTab(self.solver_panel, "Solver")
+        
+        # Advanced tab for zone extraction and optimization
+        self.advanced_tab = QWidget()
+        advanced_layout = QVBoxLayout(self.advanced_tab)
+        
+        # Create a tab widget for advanced features
+        advanced_tabs = QTabWidget()
+        
+        # Zone extraction panel
+        self.zone_panel = ZoneExtractionPanel()
+        advanced_tabs.addTab(self.zone_panel, "Zone Extraction")
+        
+        # Deformation panel
+        self.deformation_panel = DeformationWidget()
+        advanced_tabs.addTab(self.deformation_panel, "Deformation")
+        
+        advanced_layout.addWidget(advanced_tabs)
+        self.tabs.addTab(self.advanced_tab, "Advanced")
         
         left_layout.addWidget(self.tabs)
         
@@ -222,10 +245,19 @@ class OpenFFDMainWindow(QMainWindow):
     
     def _connect_signals(self):
         """Connect signals and slots."""
+        # Basic FFD controls
         self.generate_ffd_btn.clicked.connect(self.on_generate_ffd)
         self.export_ffd_btn.clicked.connect(self.on_export_ffd)
         self.mesh_panel.mesh_loaded.connect(self.on_mesh_loaded)
         self.ffd_panel.ffd_parameters_changed.connect(self.on_ffd_parameters_changed)
+        
+        # Connect zone extraction panel
+        self.mesh_panel.mesh_loaded.connect(self.on_mesh_for_zones_loaded)
+        self.zone_panel.zone_extracted.connect(self.on_zone_extracted)
+        
+        # Connect solver and deformation panels
+        self.solver_panel.simulation_completed.connect(self.on_simulation_completed)
+        self.deformation_panel.deformation_changed.connect(self.on_deformation_changed)
     
     def _restore_settings(self):
         """Restore application settings."""
@@ -389,6 +421,116 @@ class OpenFFDMainWindow(QMainWindow):
             <p>Version 1.0.0</p>
             <p>&copy; 2023</p>"""
         )
+        
+    @pyqtSlot(object, object)
+    def on_mesh_for_zones_loaded(self, mesh_data, mesh_points):
+        """Handle mesh loaded signal for zone extraction.
+        
+        Args:
+            mesh_data: The mesh data object
+            mesh_points: Numpy array of mesh point coordinates
+        """
+        # Pass the mesh to the zone extraction panel
+        if mesh_data is not None:
+            mesh_file_path = self.mesh_panel.mesh_file_path
+            self.zone_panel.set_mesh(mesh_file_path, mesh_data)
+            
+    @pyqtSlot(object, object, str)
+    def on_zone_extracted(self, mesh_data, zone_points, zone_name):
+        """Handle zone extraction completion.
+        
+        Args:
+            mesh_data: The mesh data object
+            zone_points: Numpy array of extracted zone point coordinates
+            zone_name: Name of the extracted zone
+        """
+        # Update the visualization with extracted zone points
+        self.visualization.set_mesh(mesh_data, zone_points)
+        
+        # Update the mesh points for FFD generation
+        self.mesh_points = zone_points
+        
+        # Enable FFD generation for the zone
+        self.generate_ffd_btn.setEnabled(True)
+        self.generate_action.setEnabled(True)
+        
+        # Update FFD panel with new bounds
+        if zone_points is not None and len(zone_points) > 0:
+            min_coords = zone_points.min(axis=0)
+            max_coords = zone_points.max(axis=0)
+            self.ffd_panel.update_bounds(min_coords, max_coords)
+            
+        # Show a message in the status bar
+        self.statusBar().showMessage(f"Extracted zone '{zone_name}' with {len(zone_points)} points")
+        
+    @pyqtSlot(bool, str)
+    def on_simulation_completed(self, success, message):
+        """Handle simulation completion from the solver panel.
+        
+        Args:
+            success: Whether the simulation was successful
+            message: Result message
+        """
+        if not success:
+            show_error_dialog("Simulation Error", message)
+            return
+            
+        # Check if this was an adjoint simulation that produced sensitivities
+        sensitivity_file = self.solver_panel.get_sensitivity_file()
+        if sensitivity_file and os.path.exists(sensitivity_file) and self.ffd_control_points is not None:
+            self.statusBar().showMessage("Loading sensitivities from adjoint simulation...")
+            
+            try:
+                # Create sensitivity mapper
+                mapper = SensitivityMapper(self.parallel_config)
+                
+                # Load sensitivities
+                mesh_sensitivities = mapper.load_sensitivities(sensitivity_file)
+                
+                # Map sensitivities to control points
+                control_dims = self.ffd_panel.get_control_dimensions()
+                control_sens = mapper.map_to_control_points(
+                    self.mesh_points, 
+                    mesh_sensitivities, 
+                    self.ffd_control_points,
+                    control_dims
+                )
+                
+                # Set sensitivities in deformation panel
+                self.deformation_panel.set_sensitivity_data(
+                    control_sens, 
+                    self.ffd_control_points,
+                    control_dims
+                )
+                
+                # Switch to the advanced tab and deformation panel
+                self.tabs.setCurrentIndex(3)  # Advanced tab
+                
+                self.statusBar().showMessage("Sensitivities loaded and mapped to control points")
+            except Exception as e:
+                logger.error(f"Error loading sensitivities: {str(e)}")
+                show_error_dialog("Sensitivity Error", str(e))
+        else:
+            self.statusBar().showMessage(message)
+    
+    @pyqtSlot(object, float)
+    def on_deformation_changed(self, deformed_points, scale):
+        """Handle deformation changes from the deformation panel.
+        
+        Args:
+            deformed_points: The deformed control points
+            scale: Scale factor applied to the deformation
+        """
+        if deformed_points is None:
+            return
+            
+        # Update the visualization with deformed control points
+        control_dims = self.ffd_panel.get_control_dimensions()
+        self.visualization.set_ffd(deformed_points, control_dims)
+        
+        # Update status bar
+        self.statusBar().showMessage(f"Deformation applied with scale factor {scale:.2f}")
+    
 
 
 def launch_gui():
@@ -396,13 +538,16 @@ def launch_gui():
     # Set up logging
     setup_logger()
     
+    # Configure high DPI scaling before creating the application
+    # In PyQt6, high DPI scaling is enabled by default
+    # But we can still ensure high DPI pixmaps are used
+    import PyQt6.QtCore
+    if hasattr(PyQt6.QtCore.Qt, 'AA_UseHighDpiPixmaps'):
+        PyQt6.QtCore.QCoreApplication.setAttribute(PyQt6.QtCore.Qt.AA_UseHighDpiPixmaps, True)
+    
     # Create Qt application
     app = QApplication(sys.argv)
     app.setStyle("Fusion")  # Modern cross-platform style
-    
-    # Set application-wide attributes
-    app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     
     # Create and show main window
     window = OpenFFDMainWindow()

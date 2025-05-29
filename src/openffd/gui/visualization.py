@@ -7,13 +7,32 @@ import logging
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QAction, QComboBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QComboBox
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtGui import QIcon
 
 # Import PyVista for 3D visualization
 import pyvista as pv
-from pyvista.qt import QtInteractor
+
+# Set PyQt6 as the backend before importing pyvista.qt
+import os
+os.environ['PYQT_API'] = 'pyqt6'
+
+# Try to import Qt components from PyVista, but provide fallback if not available
+HAS_PYVISTA_QT = False
+try:
+    import pyvistaqt
+    from pyvistaqt import QtInteractor
+    HAS_PYVISTA_QT = True
+except ImportError:
+    # Fallback to using matplotlib instead for visualization
+    import matplotlib
+    matplotlib.use('QtAgg')  # Use Qt6Agg for PyQt6
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -43,15 +62,12 @@ class FFDVisualizationWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Create PyVista plotter
-        self.plotter = QtInteractor(self)
-        
         # Create toolbar with view options
         toolbar = QToolBar()
         toolbar.setIconSize(QSize(20, 20))
         
         # View presets
-        view_label = QToolBar("View:")
+        view_label = QLabel("View:")
         toolbar.addWidget(view_label)
         
         self.view_combo = QComboBox()
@@ -73,13 +89,32 @@ class FFDVisualizationWidget(QWidget):
         axes_action.triggered.connect(self._toggle_axes)
         toolbar.addAction(axes_action)
         
-        # Add toolbar and plotter to layout
+        # Add toolbar to layout
         layout.addWidget(toolbar)
-        layout.addWidget(self.plotter)
         
-        # Set up the plotter
-        self.plotter.set_background("white")
-        self.plotter.add_axes()
+        # Create the visualization component based on available libraries
+        if HAS_PYVISTA_QT:
+            # Use PyVista QtInteractor if available
+            self.plotter = QtInteractor(self)
+            layout.addWidget(self.plotter)
+            
+            # Set up the plotter
+            self.plotter.set_background("white")
+            self.plotter.add_axes()
+            self.backend = "pyvista"
+        else:
+            # Fallback to matplotlib
+            self.figure = Figure(figsize=(8, 6))
+            self.canvas = FigureCanvas(self.figure)
+            self.axes = self.figure.add_subplot(111, projection='3d')
+            layout.addWidget(self.canvas)
+            
+            # Set up the axes
+            self.axes.set_xlabel('X')
+            self.axes.set_ylabel('Y')
+            self.axes.set_zlabel('Z')
+            self.axes.grid(True)
+            self.backend = "matplotlib"
     
     def set_mesh(self, mesh_data: Any, mesh_points: np.ndarray):
         """Set the mesh to visualize.
