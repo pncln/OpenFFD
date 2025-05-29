@@ -1,3 +1,0 @@
-sonicFoamAdjoint.C
-
-EXE = $(FOAM_APPBIN)/sonicFoamAdjoint
