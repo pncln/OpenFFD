@@ -31,12 +31,14 @@ from openffd.gui.utils import setup_logger, get_icon_path, show_error_dialog
 from openffd.gui.zone_extraction import ZoneExtractionPanel
 from openffd.gui.deformation_view import DeformationWidget
 from openffd.gui.sensitivity_mapper import SensitivityMapper
+from openffd.gui.hierarchical_panel import HierarchicalFFDPanel
 
 # Import core OpenFFD functionality
 from openffd.core.config import FFDConfig
 from openffd.utils.parallel import ParallelConfig
 from openffd.mesh.general import read_general_mesh, is_fluent_mesh
 from openffd.core.control_box import create_ffd_box
+from openffd.core.hierarchical import HierarchicalFFD
 from openffd.io.export import write_ffd_3df, write_ffd_xyz
 
 # Configure logging
@@ -57,6 +59,7 @@ class OpenFFDMainWindow(QMainWindow):
         self.ffd_control_points = None
         self.bounding_box = None
         self.ffd_config = FFDConfig(dims=(4, 4, 4))  # Default dimensions
+        self.hierarchical_ffd = None  # For hierarchical FFD
         self.parallel_config = ParallelConfig()
         self.settings = QSettings("OpenFFD", "GUI")
         
@@ -116,6 +119,10 @@ class OpenFFDMainWindow(QMainWindow):
         # Deformation panel
         self.deformation_panel = DeformationWidget()
         advanced_tabs.addTab(self.deformation_panel, "Deformation")
+        
+        # Hierarchical FFD panel
+        self.hierarchical_panel = HierarchicalFFDPanel()
+        advanced_tabs.addTab(self.hierarchical_panel, "Hierarchical FFD")
         
         advanced_layout.addWidget(advanced_tabs)
         self.tabs.addTab(self.advanced_tab, "Advanced")
@@ -246,29 +253,38 @@ class OpenFFDMainWindow(QMainWindow):
     
     def _connect_signals(self):
         """Connect signals and slots."""
-        # Basic FFD controls
+        # Mesh panel signals
+        self.mesh_panel.mesh_loaded.connect(self.on_mesh_loaded)
+            
+        # FFD panel signals
+        self.ffd_panel.ffd_parameters_changed.connect(self.on_ffd_parameters_changed)
         self.generate_ffd_btn.clicked.connect(self.on_generate_ffd)
         self.export_ffd_btn.clicked.connect(self.on_export_ffd)
-        self.mesh_panel.mesh_loaded.connect(self.on_mesh_loaded)
-        self.ffd_panel.ffd_parameters_changed.connect(self.on_ffd_parameters_changed)
-        
-        # Connect zone extraction panel
+            
+        # Zone extraction panel signals
+        # Connect mesh loaded signal from main mesh panel to the zone handler
         self.mesh_panel.mesh_loaded.connect(self.on_mesh_for_zones_loaded)
         self.zone_panel.zone_extracted.connect(self.on_zone_extracted)
         
-        # Connect solver and deformation panels
+        # Solver panel signals
         self.solver_panel.simulation_completed.connect(self.on_simulation_completed)
+        
+        # Deformation panel signals
         self.deformation_panel.deformation_changed.connect(self.on_deformation_changed)
-    
+        
+        # Hierarchical FFD panel signals
+        self.hierarchical_panel.hierarchical_ffd_updated.connect(self.on_hierarchical_ffd_updated)
+        
     def _restore_settings(self):
         """Restore application settings."""
+        # Restore window geometry and state if available
         if self.settings.contains("MainWindow/geometry"):
             self.restoreGeometry(self.settings.value("MainWindow/geometry"))
-        
+            
         if self.settings.contains("MainWindow/state"):
             self.restoreState(self.settings.value("MainWindow/state"))
-        
-        if self.settings.contains("MainWindow/splitter"):
+            
+        if self.settings.contains("MainWindow/splitter") and hasattr(self, "main_splitter"):
             self.main_splitter.restoreState(self.settings.value("MainWindow/splitter"))
     
     def closeEvent(self, event):
@@ -311,6 +327,9 @@ class OpenFFDMainWindow(QMainWindow):
             min_coords = mesh_points.min(axis=0)
             max_coords = mesh_points.max(axis=0)
             self.ffd_panel.update_bounds(min_coords, max_coords)
+            
+            # Update hierarchical FFD panel with mesh points
+            self.hierarchical_panel.set_mesh_points(mesh_points)
     
     @pyqtSlot()
     def on_ffd_parameters_changed(self):
@@ -532,11 +551,99 @@ class OpenFFDMainWindow(QMainWindow):
         # Update status bar
         self.statusBar().showMessage(f"Deformation applied with scale factor {scale:.2f}")
     
-
+    @pyqtSlot(object)
+    def on_hierarchical_ffd_updated(self, hierarchical_ffd):
+        """Handle hierarchical FFD updates from the hierarchical panel.
+        
+        Args:
+            hierarchical_ffd: The HierarchicalFFD object
+        """
+        if hierarchical_ffd is None:
+            return
+        
+        # Store the hierarchical FFD
+        self.hierarchical_ffd = hierarchical_ffd
+        
+        # Clear the visualization
+        self.visualization.plotter.clear()
+        
+        try:
+            # Get visualization parameters
+            show_mesh = self.hierarchical_panel.show_mesh_cb.isChecked()
+            color_by_level = self.hierarchical_panel.color_by_level_cb.isChecked()
+            show_influence = self.hierarchical_panel.show_influence_cb.isChecked()
+            
+            # Create plotter for the visualization
+            plotter = self.visualization.plotter
+            
+            # Use mesh points if available and requested
+            mesh_points = self.mesh_points if show_mesh else None
+            
+            # Display all levels
+            level_info = hierarchical_ffd.get_level_info()
+            all_levels = [level['level_id'] for level in level_info]
+            
+            # Add hierarchical FFD visualization directly to the plotter
+            for level_id in all_levels:
+                level = hierarchical_ffd.levels[level_id]
+                
+                # Get control points for this level
+                cp = level.control_points
+                dims = level.dims
+                
+                # Create a color based on the level
+                if color_by_level:
+                    # Use a different color for each level (red -> blue gradient)
+                    level_fraction = level_id / max(all_levels)
+                    r = 1.0 - level_fraction
+                    b = level_fraction
+                    color = (r, 0.2, b)
+                else:
+                    color = 'red'  # Default color
+                
+                # Try to create a proper grid for this level
+                try:
+                    from openffd.visualization.level_grid import try_create_level_grid, create_grid_edges
+                    
+                    # Reshape the control points to a 3D grid
+                    cp_grid = try_create_level_grid(cp, dims)
+                    
+                    if cp_grid is not None:
+                        # Generate grid edges
+                        edges = create_grid_edges(cp_grid)
+                        
+                        # Add each edge as a line
+                        for edge in edges:
+                            start, end = edge[0], edge[1]
+                            line = pv.Line(start, end)
+                            plotter.add_mesh(line, color=color, line_width=2)
+                        
+                        # Add the control points
+                        plotter.add_points(cp, color=color, point_size=8, render_points_as_spheres=True)
+                except Exception as e:
+                    logger.error(f"Error creating grid for level {level_id}: {str(e)}")
+                    
+                    # Fallback to simple point cloud
+                    plotter.add_points(cp, color=color, point_size=8, render_points_as_spheres=True)
+            
+            # Add mesh points if requested
+            if show_mesh and self.mesh_points is not None:
+                mesh_cloud = pv.PolyData(self.mesh_points)
+                plotter.add_mesh(mesh_cloud, color='lightblue', opacity=0.5, point_size=3)
+            
+            # Reset camera to show the scene
+            plotter.reset_camera()
+            
+            logger.info(f"Updated hierarchical FFD visualization with {len(all_levels)} levels")
+            self.statusBar().showMessage(f"Hierarchical FFD updated with {len(all_levels)} levels", 3000)
+            
+        except Exception as e:
+            logger.error(f"Error visualizing hierarchical FFD: {str(e)}")
+            self.statusBar().showMessage(f"Error visualizing hierarchical FFD: {str(e)}", 5000)
+    
 
 def launch_gui():
     """Launch the OpenFFD GUI application."""
-    # Set up logging
     setup_logger()
     
     # Configure high DPI scaling before creating the application

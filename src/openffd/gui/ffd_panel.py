@@ -9,9 +9,13 @@ from typing import Optional, List, Tuple, Dict, Any
 import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
-    QDoubleSpinBox, QSpinBox, QGroupBox, QCheckBox, QLineEdit
+    QDoubleSpinBox, QSpinBox, QGroupBox, QCheckBox, QLineEdit,
+    QRadioButton, QButtonGroup, QTreeWidget, QTreeWidgetItem, QSplitter, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+
+from openffd.core.hierarchical import HierarchicalFFD, HierarchicalLevel, create_hierarchical_ffd
+from openffd.utils.parallel import ParallelConfig
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,6 +27,9 @@ class FFDPanel(QWidget):
     # Signal emitted when FFD parameters are changed
     ffd_parameters_changed = pyqtSignal()
     
+    # Signal emitted when hierarchical FFD is updated
+    hierarchical_ffd_updated = pyqtSignal(object)  # Emits HierarchicalFFD object
+    
     def __init__(self, parent=None):
         """Initialize the FFD panel.
         
@@ -32,6 +39,9 @@ class FFDPanel(QWidget):
         super().__init__(parent)
         self.mesh_min_coords = None
         self.mesh_max_coords = None
+        self.mesh_points = None
+        self.hierarchical_ffd = None
+        self.ffd_mode = "standard"  # "standard" or "hierarchical"
         
         self._setup_ui()
     
@@ -39,9 +49,49 @@ class FFDPanel(QWidget):
         """Set up the user interface."""
         layout = QVBoxLayout(self)
         
+        # FFD Mode selection
+        mode_group = QGroupBox("FFD Mode")
+        mode_layout = QHBoxLayout(mode_group)
+        
+        # Radio buttons for FFD mode
+        self.standard_mode_radio = QRadioButton("Standard FFD")
+        self.standard_mode_radio.setChecked(True)
+        self.hierarchical_mode_radio = QRadioButton("Hierarchical FFD")
+        
+        # Group radio buttons
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.standard_mode_radio, 1)
+        self.mode_group.addButton(self.hierarchical_mode_radio, 2)
+        self.mode_group.buttonClicked.connect(self._on_mode_changed)
+        
+        mode_layout.addWidget(self.standard_mode_radio)
+        mode_layout.addWidget(self.hierarchical_mode_radio)
+        layout.addWidget(mode_group)
+        
+        # Stack for different mode UIs
+        self.standard_widget = QWidget()
+        self.hierarchical_widget = QWidget()
+        
+        # Setup standard FFD UI
+        self._setup_standard_ui()
+        
+        # Setup hierarchical FFD UI
+        self._setup_hierarchical_ui()
+        
+        # Add both widgets to layout
+        layout.addWidget(self.standard_widget)
+        layout.addWidget(self.hierarchical_widget)
+        
+        # Show the appropriate widget based on initial mode
+        self._update_mode_visibility()
+    
+    def _setup_standard_ui(self):
+        """Setup UI for standard FFD mode."""
+        layout = QVBoxLayout(self.standard_widget)
+        
         # Control dimensions section
         dim_group = QGroupBox("Control Point Dimensions")
-        dim_layout = QFormLayout()
+        dim_layout = QFormLayout(dim_group)
         
         self.nx_spin = QSpinBox()
         self.nx_spin.setRange(2, 100)

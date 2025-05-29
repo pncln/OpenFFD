@@ -22,6 +22,14 @@ os.environ['PYQT_API'] = 'pyqt6'
 # Import PyVista Qt components - these are required for the visualization
 import pyvistaqt
 from pyvistaqt import QtInteractor
+import pyvista as pv
+
+# Import the existing CLI visualization logic
+from openffd.visualization.ffd_viz import visualize_ffd_pyvista
+from openffd.visualization.mesh_viz import visualize_mesh_with_patches_pyvista
+from openffd.visualization.level_grid import create_level_grid, try_create_level_grid, create_grid_edges, create_boundary_edges
+from openffd.visualization.zone_viz import visualize_zones_pyvista
+from openffd.visualization.hierarchical_viz import visualize_hierarchical_ffd_pyvista
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -144,68 +152,92 @@ class FFDVisualizationWidget(QWidget):
         self.ffd_control_points = control_points
         self.control_dim = control_dim
         
-        # Clear existing FFD actors
-        if self.ffd_actor is not None:
-            self.plotter.remove_actor(self.ffd_actor)
-            self.ffd_actor = None
+        # Clear the plotter completely
+        self.plotter.clear()
+        
+        # Calculate the bounding box from the control points
+        if control_points is not None and len(control_points) > 0:
+            min_coords = np.min(control_points, axis=0)
+            max_coords = np.max(control_points, axis=0)
+            bbox = (min_coords, max_coords)
             
-        if self.ffd_points_actor is not None:
-            self.plotter.remove_actor(self.ffd_points_actor)
-            self.ffd_points_actor = None
-        
-        # Clear plotter of any other actors that might not be tracked
-        self.plotter.clear_actors()
-        
-        # Re-add the mesh if it exists
-        if self.mesh_actor is not None:
-            if hasattr(self.mesh_data, 'points') and hasattr(self.mesh_data, 'cells'):
-                if hasattr(self.mesh_data, 'to_pyvista'):
-                    pv_mesh = self.mesh_data.to_pyvista()
-                else:
-                    pv_mesh = pv.PolyData(self.mesh_points)
-            else:
-                pv_mesh = pv.PolyData(self.mesh_points)
-            
-            self.mesh_actor = self.plotter.add_mesh(
-                pv_mesh,
-                style='surface', 
-                color='lightblue', 
-                opacity=0.7, 
-                show_edges=True
-            )
-        
-        if control_points is not None and control_dim is not None:
             try:
-                nx, ny, nz = control_dim
-                
-                # Create a structured grid for the FFD control box
-                # Reshape control points to 3D grid format
-                points_reshaped = control_points.reshape(nx, ny, nz, 3)
-                
-                # Create a structured grid with the proper dimensions
-                grid = pv.StructuredGrid()
-                grid.points = control_points
-                grid.dimensions = [nx, ny, nz]
-                
-                # Add the grid as a wireframe
-                self.ffd_actor = self.plotter.add_mesh(
-                    grid, 
-                    style='wireframe',
-                    line_width=2, 
-                    color='red'
-                )
-                
-                # Add control points as spheres
-                self.ffd_points_actor = self.plotter.add_points(
-                    control_points,
-                    color='red',
-                    point_size=8,
-                    render_points_as_spheres=True
-                )
-                
+                # Set up visualization using the proper FFD grid approach from CLI
+                if self.mesh_points is not None:
+                    # Visualize both mesh and FFD
+                    self._setup_ffd_with_proper_grid(control_points, bbox, control_dim, True)
+                else:
+                    # Visualize only the FFD
+                    self._setup_ffd_with_proper_grid(control_points, bbox, control_dim, False)
+                    
+                # Reset camera to show the scene
+                self.plotter.reset_camera()
                 logger.info(f"FFD visualization updated with {len(control_points)} control points")
             except Exception as e:
                 logger.error(f"Error visualizing FFD box: {str(e)}")
+                
+    def _setup_ffd_with_proper_grid(self, control_points, bbox, dims, show_mesh=False):
+        """Set up FFD visualization with proper grid connectivity using the CLI modules.
+        
+        Args:
+            control_points: Array of control point coordinates
+            bbox: Tuple of (min_coords, max_coords)
+            dims: Dimensions of the FFD lattice (nx, ny, nz)
+            show_mesh: Whether to show the mesh points
+        """
+        nx, ny, nz = dims
+        
+        # First, reshape control points using the level_grid module
+        try:
+            cp_grid = try_create_level_grid(control_points, dims)
+            if cp_grid is None:
+                # If reshaping failed, fallback to direct reshape
+                logger.warning("Could not reshape control points using level_grid, falling back to direct reshape")
+                cp_grid = control_points.reshape(nx, ny, nz, 3)
+                
+            # Add mesh points if available and requested
+            if show_mesh and self.mesh_points is not None:
+                # Create and add point cloud for mesh points
+                mesh_cloud = pv.PolyData(self.mesh_points)
+                self.mesh_actor = self.plotter.add_mesh(
+                    mesh_cloud,
+                    style='surface',
+                    color='lightblue',
+                    opacity=0.7,
+                    point_size=3,
+                    render_points_as_spheres=True
+                )
+            
+            # Add control points
+            cp_cloud = pv.PolyData(control_points)
+            self.ffd_points_actor = self.plotter.add_points(
+                cp_cloud,
+                color='red',
+                point_size=8,
+                render_points_as_spheres=True
+            )
+            
+            # Generate the grid edges based on the shaped control points
+            edges = create_grid_edges(cp_grid)
+            
+            # Add each edge as a line to the plotter
+            for edge in edges:
+                start, end = edge[0], edge[1]
+                line = pv.Line(start, end)
+                self.plotter.add_mesh(line, color='red', line_width=2)
+                
+            # Add plot title
+            self.plotter.add_text(f"FFD Control Box ({nx}×{ny}×{nz})\n{len(control_points)} control points", font_size=12)
+            
+        except Exception as e:
+            logger.error(f"Error creating proper grid visualization: {e}")
+            # Fall back to simple structured grid as last resort
+            logger.warning("Falling back to simple structured grid")
+            grid = pv.StructuredGrid()
+            grid.points = control_points
+            grid.dimensions = [nx, ny, nz]
+            self.ffd_actor = self.plotter.add_mesh(grid, style='wireframe', line_width=2, color='red')
+            self.ffd_points_actor = self.plotter.add_points(control_points, color='red', point_size=8, render_points_as_spheres=True)
     
     def toggle_mesh_visibility(self, visible: bool):
         """Toggle the visibility of the mesh.
