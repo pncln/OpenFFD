@@ -1,7 +1,7 @@
-"""Integration module for sonicAdjointFoam solver with OpenFFD.
+"""Integration module for DASonicFoam solver with OpenFFD.
 
 This module provides the necessary classes and functions to interface between
-the sonicAdjointFoam OpenFOAM solver and the OpenFFD framework for sensitivity-based
+the DASonicFoam DAFoam-based solver and the OpenFFD framework for sensitivity-based
 shape optimization of supersonic flow applications.
 """
 
@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 class SonicAdjointInterface(OpenFOAMInterface):
-    """Interface for the sonicAdjointFoam solver with OpenFFD integration.
+    """Interface for the DASonicFoam solver with OpenFFD integration.
     
     This class extends the base OpenFOAMInterface to provide specific
-    functionality for supersonic flow optimization using adjoint-based
-    sensitivity analysis.
+    functionality for supersonic flow optimization using DAFoam's adjoint-based
+    sensitivity analysis framework.
     """
     
     def __init__(
