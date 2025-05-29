@@ -207,6 +207,7 @@ class OpenFFDMainWindow(QMainWindow):
     def _create_toolbar(self):
         """Create the main toolbar."""
         toolbar = QToolBar("Main Toolbar")
+        toolbar.setObjectName("mainToolBar")  # Set an object name for state saving
         toolbar.setIconSize(QSize(24, 24))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
         

@@ -221,8 +221,10 @@ class MeshPanel(QWidget):
         Args:
             use_binary: Whether to use binary format
         """
-        reader = FluentMeshReader()
-        self.mesh_data = reader.read(self.mesh_file_path, binary=use_binary)
+        # Initialize the reader with the filename and binary option
+        reader = FluentMeshReader(filename=self.mesh_file_path, force_binary=use_binary, force_ascii=not use_binary)
+        # Call read without binary parameter
+        self.mesh_data = reader.read()
         
         if hasattr(self.mesh_data, 'points'):
             self.mesh_points = np.array(self.mesh_data.points)

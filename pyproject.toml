@@ -28,6 +28,7 @@ dependencies = [
     "numpy>=1.20.0",
     "matplotlib>=3.4.0",
     "pyvista>=0.34.0",
+    "pyvistaqt>=0.7.0",
     "scipy>=1.7.0",
     "PyQt6>=6.4.0",
 ]

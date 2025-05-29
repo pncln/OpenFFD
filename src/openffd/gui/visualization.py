@@ -7,7 +7,7 @@ import logging
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QComboBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QComboBox, QLabel
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtGui import QIcon
@@ -19,20 +19,9 @@ import pyvista as pv
 import os
 os.environ['PYQT_API'] = 'pyqt6'
 
-# Try to import Qt components from PyVista, but provide fallback if not available
-HAS_PYVISTA_QT = False
-try:
-    import pyvistaqt
-    from pyvistaqt import QtInteractor
-    HAS_PYVISTA_QT = True
-except ImportError:
-    # Fallback to using matplotlib instead for visualization
-    import matplotlib
-    matplotlib.use('QtAgg')  # Use Qt6Agg for PyQt6
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
+# Import PyVista Qt components - these are required for the visualization
+import pyvistaqt
+from pyvistaqt import QtInteractor
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,6 +43,7 @@ class FFDVisualizationWidget(QWidget):
         self.control_dim = None
         self.mesh_actor = None
         self.ffd_actor = None
+        self.ffd_points_actor = None
         
         self._setup_ui()
     
@@ -92,29 +82,13 @@ class FFDVisualizationWidget(QWidget):
         # Add toolbar to layout
         layout.addWidget(toolbar)
         
-        # Create the visualization component based on available libraries
-        if HAS_PYVISTA_QT:
-            # Use PyVista QtInteractor if available
-            self.plotter = QtInteractor(self)
-            layout.addWidget(self.plotter)
-            
-            # Set up the plotter
-            self.plotter.set_background("white")
-            self.plotter.add_axes()
-            self.backend = "pyvista"
-        else:
-            # Fallback to matplotlib
-            self.figure = Figure(figsize=(8, 6))
-            self.canvas = FigureCanvas(self.figure)
-            self.axes = self.figure.add_subplot(111, projection='3d')
-            layout.addWidget(self.canvas)
-            
-            # Set up the axes
-            self.axes.set_xlabel('X')
-            self.axes.set_ylabel('Y')
-            self.axes.set_zlabel('Z')
-            self.axes.grid(True)
-            self.backend = "matplotlib"
+        # Create the PyVista visualization component
+        self.plotter = QtInteractor(self)
+        layout.addWidget(self.plotter)
+        
+        # Set up the plotter
+        self.plotter.set_background("white")
+        self.plotter.add_axes()
     
     def set_mesh(self, mesh_data: Any, mesh_points: np.ndarray):
         """Set the mesh to visualize.
@@ -170,32 +144,50 @@ class FFDVisualizationWidget(QWidget):
         self.ffd_control_points = control_points
         self.control_dim = control_dim
         
-        # Clear existing FFD actor
+        # Clear existing FFD actors
         if self.ffd_actor is not None:
             self.plotter.remove_actor(self.ffd_actor)
             self.ffd_actor = None
+            
+        if self.ffd_points_actor is not None:
+            self.plotter.remove_actor(self.ffd_points_actor)
+            self.ffd_points_actor = None
+        
+        # Clear plotter of any other actors that might not be tracked
+        self.plotter.clear_actors()
+        
+        # Re-add the mesh if it exists
+        if self.mesh_actor is not None:
+            if hasattr(self.mesh_data, 'points') and hasattr(self.mesh_data, 'cells'):
+                if hasattr(self.mesh_data, 'to_pyvista'):
+                    pv_mesh = self.mesh_data.to_pyvista()
+                else:
+                    pv_mesh = pv.PolyData(self.mesh_points)
+            else:
+                pv_mesh = pv.PolyData(self.mesh_points)
+            
+            self.mesh_actor = self.plotter.add_mesh(
+                pv_mesh,
+                style='surface', 
+                color='lightblue', 
+                opacity=0.7, 
+                show_edges=True
+            )
         
         if control_points is not None and control_dim is not None:
             try:
                 nx, ny, nz = control_dim
                 
                 # Create a structured grid for the FFD control box
+                # Reshape control points to 3D grid format
+                points_reshaped = control_points.reshape(nx, ny, nz, 3)
+                
+                # Create a structured grid with the proper dimensions
                 grid = pv.StructuredGrid()
-                
-                # Reshape control points for structured grid
-                points_3d = np.zeros((nx, ny, nz, 3))
-                idx = 0
-                for i in range(nx):
-                    for j in range(ny):
-                        for k in range(nz):
-                            points_3d[i, j, k] = control_points[idx]
-                            idx += 1
-                
-                # Set grid dimensions and points
                 grid.points = control_points
                 grid.dimensions = [nx, ny, nz]
                 
-                # Add control points and grid to plotter
+                # Add the grid as a wireframe
                 self.ffd_actor = self.plotter.add_mesh(
                     grid, 
                     style='wireframe',
@@ -203,8 +195,8 @@ class FFDVisualizationWidget(QWidget):
                     color='red'
                 )
                 
-                # Add control points
-                self.plotter.add_points(
+                # Add control points as spheres
+                self.ffd_points_actor = self.plotter.add_points(
                     control_points,
                     color='red',
                     point_size=8,
