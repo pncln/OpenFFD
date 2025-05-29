@@ -2,7 +2,7 @@
 
 # OpenFFD
 
-**Modern Free-Form Deformation Control Box Generator for Computational Design**
+**Advanced Free-Form Deformation Framework for Computational Design and Optimization**
 
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -14,24 +14,24 @@
 
 ## 📋 Overview
 
-OpenFFD is a high-performance, open-source tool for generating Free-Form Deformation (FFD) control boxes for computational mesh files. This framework enables precise shape manipulation for aerodynamic optimization, structural analysis, and design workflows.
+OpenFFD is a high-performance, open-source framework for advanced Free-Form Deformation (FFD) in computational design and optimization. It provides both standard and hierarchical FFD capabilities for precise shape manipulation in aerodynamic optimization, structural analysis, and other engineering design workflows.
 
-The software leverages parallel processing capabilities for handling large-scale meshes efficiently, making it suitable for industrial-grade CFD and FEA applications.
+The software leverages parallel processing for handling large-scale meshes efficiently, making it suitable for industrial-grade CFD/FEA applications and seamlessly integrates with adjoint-based optimization frameworks like OpenFOAM.
 
 <div align="center">
-  <img src="https://github.com/pncln/openffd/raw/main/docs/images/ffd_visualization.png" alt="FFD Visualization Example" width="700px">
+  <img src="https://github.com/pncln/openffd/raw/main/docs/images/hffd1.png" alt="FFD Visualization Example" width="700px">
 </div>
 
 ## ✨ Key Features
 
+- **Hierarchical FFD**: Multi-resolution FFD with customizable depth and subdivision factors for targeted control in critical regions
 - **Universal Mesh Support**: Processes Fluent mesh (.cas, .msh), VTK, STL, OBJ, Gmsh and more through a unified interface
-- **Parallel Processing**: Utilizes multi-core processing for handling large-scale meshes with millions of points efficiently
-- **Selective Targeting**: Targets specific mesh zones, patches, or cell sets for precise control
-- **Multi-format Export**: Exports control points in .3df (standard) or .xyz (DAFoam-compatible) formats
-- **Advanced Visualization**: Provides interactive 3D visualization with complete grid connectivity display
-- **Plot3D Integration**: Supports direct export to Plot3D format for CFD post-processing
-- **Modular Architecture**: Features a clean, extensible codebase using modern Python packaging standards
-- **Optimization Integration**: Offers seamless compatibility with aerodynamic shape optimization frameworks
+- **Enhanced Zone Extraction**: Advanced zone detection and extraction from complex CFD meshes with robust boundary handling
+- **OpenFOAM Integration**: Direct integration with OpenFOAM and sonicFoamAdjoint for shape optimization of supersonic flows
+- **Parallel Processing**: Optimized multi-core processing for handling large-scale meshes with millions of points efficiently
+- **Custom Bounds Control**: Precise control box dimensions in both standard and hierarchical FFD modes
+- **Advanced Visualization**: Interactive 3D visualization with level-based coloring for hierarchical FFD structures
+- **Unified GUI**: Integrated interface for both standard and hierarchical FFD with seamless switching between modes
 
 ## 🚀 Installation
 
@@ -63,7 +63,9 @@ pip install -e ".[all]"
 
 - **Core**: NumPy, SciPy, Matplotlib, PyVista
 - **Mesh Processing**: meshio (optional)
-- **Visualization**: PyVista (>= 0.37.0)
+- **Visualization**: PyVista (>= 0.37.0), PyVistaQt
+- **GUI**: PyQt6 for the graphical user interface
+- **OpenFOAM Integration**: OpenFOAM (v2406+) for sonicFoamAdjoint integration
 - **Development**: pytest, black, isort, mypy, flake8, pre-commit
 
 ## 🏁 Quick Start
@@ -75,8 +77,15 @@ python -m openffd mesh_file.msh
 # Specify control lattice dimensions and visualize
 python -m openffd mesh_file.stl --dims 8 6 4 --plot
 
-# Export in DAFoam compatible format with margins
-python -m openffd airfoil.cas --output airfoil_ffd.xyz --margin 0.05 --export-xyz
+# Create a hierarchical FFD with 3 levels and visualize
+python -m openffd aircraft.msh --hierarchical --depth 3 --base-dims 4 4 4 --plot
+
+# Extract specific zones and apply FFD
+python -m openffd nozzle.cas --list-zones  # List available zones
+python -m openffd nozzle.cas --extract-boundary wing --margin 0.05 --plot
+
+# Generate FFD and export for OpenFOAM/sonicFoam optimization
+python -m openffd wing.msh --output wing_ffd.3df --export-openfoam
 
 # Enable parallel processing for large meshes
 python -m openffd large_mesh.msh --dims 10 10 10 --parallel
@@ -99,6 +108,30 @@ python -m openffd <mesh_file> [options]
 | `--dims N N N` | Control lattice dimensions: Nx Ny Nz (default: 4 4 4) |
 | `--margin VALUE` | Margin padding around the mesh (default: 0.0) |
 | `--output FILE` | Output filename (default: ffd_box.3df) |
+
+#### Hierarchical FFD Options
+
+| Option | Description |
+|--------|-------------|
+| `--hierarchical` | Enable hierarchical FFD mode |
+| `--depth N` | Maximum depth of the hierarchical FFD (default: 3) |
+| `--base-dims N N N` | Base lattice dimensions for hierarchical FFD (default: 4 4 4) |
+| `--subdivision N` | Subdivision factor between hierarchy levels (default: 2) |
+
+#### Zone Extraction Options
+
+| Option | Description |
+|--------|-------------|
+| `--list-zones` | List available zones in the mesh file |
+| `--extract-boundary NAME` | Extract specific boundary/zone for FFD application |
+| `--save-boundary FILE` | Save extracted boundary mesh to a separate file |
+
+#### OpenFOAM Integration
+
+| Option | Description |
+|--------|-------------|
+| `--export-openfoam` | Export in format compatible with OpenFOAM integration |
+| `--adjoint-format` | Format FFD for sonicFoamAdjoint sensitivity mapping |
 | `--export-xyz` | Export in DAFoam-compatible .xyz format |
 
 #### Boundary Options
@@ -125,6 +158,38 @@ python -m openffd <mesh_file> [options]
 | `--ffd-alpha VALUE` | Opacity of FFD control points and grid |
 | `--view-axis {x,y,z,-x,-y,-z}` | View axis for visualization |
 | `--detail-level {low,medium,high}` | Detail level for mesh visualization |
+
+### Graphical User Interface
+
+OpenFFD includes a full-featured GUI that can be launched with:
+
+```bash
+python -m openffd
+```
+
+#### Unified FFD Panel
+
+The GUI features a unified FFD panel that allows switching between standard and hierarchical FFD modes:
+
+- **Standard FFD Mode**: Configure control point dimensions, margins, and custom bounds
+- **Hierarchical FFD Mode**: Configure base dimensions, hierarchy depth, subdivision factors, and custom bounds
+
+#### Key GUI Features
+
+- **Mesh Loading**: Support for all mesh formats with automatic zone detection
+- **Zone Extraction**: UI for listing and extracting specific zones and boundaries
+- **Interactive 3D View**: Rotate, pan, and zoom with color-coded levels for hierarchical FFD
+- **Custom Bounds**: Set precise control box dimensions in both FFD modes
+- **Export Options**: Export FFD configurations in various formats for optimization frameworks
+- **Parallel Processing**: Configure parallel processing parameters for large meshes
+
+#### OpenFOAM Integration
+
+The GUI supports direct integration with OpenFOAM:
+
+1. **Export for sonicFoamAdjoint**: Format FFD for use with the adjoint solver
+2. **Sensitivity Mapping**: Map adjoint sensitivities to FFD control points
+3. **Shape Optimization**: Configure FFD for supersonic flow shape optimization
 
 #### Parallel Processing Options
 
@@ -299,7 +364,7 @@ If you use OpenFFD in your research, please cite:
 ```bibtex
 @software{openffd,
   author    = {Emil Mammadli},
-  title     = {OpenFFD: A High-Performance Free-Form Deformation Tool for Computational Design},
+  title     = {OpenFFD: Advanced Free-Form Deformation Framework for Computational Design and Optimization},
   year      = {2025},
   month     = {5},
   publisher = {GitHub},
