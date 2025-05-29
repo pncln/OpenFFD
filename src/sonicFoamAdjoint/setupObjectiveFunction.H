@@ -78,7 +78,7 @@ auto calculateObjective = [&]() -> scalar
         wordList patchNames = objDict.get<wordList>("patches");
         
         // Calculate the force on the specified patches
-        const volTensorField gradU = fvc::grad(U);
+        volTensorField gradU("gradU", fvc::grad(U));
         
         forAll(patchNames, i)
         {
@@ -88,19 +88,29 @@ auto calculateObjective = [&]() -> scalar
             {
                 const fvPatch& patch = mesh.boundary()[patchI];
                 const vectorField& Sf = patch.Sf();
-                const scalarField& magSf = patch.magSf();
                 
                 // Pressure force component
-                scalarField pForce = p.boundaryField()[patchI] * (Sf & direction);
+                scalarField pForce(p.boundaryField()[patchI].size());
+                forAll(pForce, faceI)
+                {
+                    pForce[faceI] = p.boundaryField()[patchI][faceI] * (Sf[faceI] & direction);
+                }
                 
                 // Viscous force component
-                vectorField viscousForce = 
-                    (
-                        mu.boundaryField()[patchI]
-                        * dev(gradU.boundaryField()[patchI])
-                    ) & Sf;
+                vectorField viscousForce(Sf.size());
+                forAll(viscousForce, faceI)
+                {
+                    viscousForce[faceI] = (
+                        mu.boundaryField()[patchI][faceI]
+                        * dev(gradU.boundaryField()[patchI][faceI])
+                    ) & Sf[faceI];
+                }
                 
-                scalarField vForce = viscousForce & direction;
+                scalarField vForce(viscousForce.size());
+                forAll(vForce, faceI)
+                {
+                    vForce[faceI] = viscousForce[faceI] & direction;
+                }
                 
                 // Total force
                 obj += gSum(pForce + vForce);
@@ -120,7 +130,7 @@ auto calculateObjective = [&]() -> scalar
         wordList patchNames = objDict.get<wordList>("patches");
         
         // Calculate the moment on the specified patches
-        const volTensorField gradU = fvc::grad(U);
+        volTensorField gradU("gradU", fvc::grad(U));
         
         forAll(patchNames, i)
         {
@@ -133,18 +143,33 @@ auto calculateObjective = [&]() -> scalar
                 const vectorField& Cf = patch.Cf();
                 
                 // Lever arm
-                vectorField r = Cf - center;
+                vectorField r(Cf.size());
+                forAll(r, faceI)
+                {
+                    r[faceI] = Cf[faceI] - center;
+                }
                 
                 // Force
-                vectorField pForce = p.boundaryField()[patchI] * Sf;
+                vectorField pForce(Sf.size());
+                forAll(pForce, faceI)
+                {
+                    pForce[faceI] = p.boundaryField()[patchI][faceI] * Sf[faceI];
+                }
                 
-                vectorField viscousForce = 
-                    (
-                        mu.boundaryField()[patchI]
-                        * dev(gradU.boundaryField()[patchI])
-                    ) & Sf;
+                vectorField viscousForce(Sf.size());
+                forAll(viscousForce, faceI)
+                {
+                    viscousForce[faceI] = (
+                        mu.boundaryField()[patchI][faceI]
+                        * dev(gradU.boundaryField()[patchI][faceI])
+                    ) & Sf[faceI];
+                }
                 
-                vectorField totalForce = pForce + viscousForce;
+                vectorField totalForce(pForce.size());
+                forAll(totalForce, faceI)
+                {
+                    totalForce[faceI] = pForce[faceI] + viscousForce[faceI];
+                }
                 
                 // Moment = r × F
                 forAll(r, faceI)
@@ -282,9 +307,12 @@ objectiveValue = calculateObjective();
 Info<< "Initial objective value (" << objectiveName << "): " << objectiveValue << nl << endl;
 
 // Create a directory to store objective history
-if (!runTime.path().exists("objective"))
 {
-    mkDir(runTime.path()/"objective");
+    fileName objDir = runTime.path()/"objective";
+    if (!isDir(objDir))
+    {
+        mkDir(objDir);
+    }
 }
 
 // Create file to store objective history

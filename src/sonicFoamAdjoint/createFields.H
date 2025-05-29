@@ -9,8 +9,13 @@ psiThermo& thermo = pThermo();
 thermo.validate(args.executable(), "h", "e");
 
 volScalarField& p = thermo.p();
-volScalarField& T = thermo.T();
-const volScalarField& psi = thermo.psi();
+
+// Access T and psi but mark as maybe unused to prevent warnings
+volScalarField& T = thermo.T(); (void)T; // Mark as used
+const volScalarField& psi = thermo.psi(); (void)psi; // Mark as used
+
+// Define rho from thermo
+const volScalarField& rho = thermo.rho();
 
 Info<< "Reading field U\n" << endl;
 volVectorField U
@@ -28,7 +33,10 @@ volVectorField U
 
 #include "compressibleCreatePhi.H"
 
-pressureControl pressureControl(p, rho, pimple.dict(), false);
+// Set up pressure reference cell/value if needed
+label pRefCell = 0;
+scalar pRefValue = 0.0;
+setRefCell(p, pimple.dict(), pRefCell, pRefValue);
 
 mesh.setFluxRequired(p.name());
 
@@ -158,6 +166,4 @@ volTensorField gradU
     fvc::grad(U)
 );
 
-// Initialize timestep
-#include "readTimeControls.H"
-#include "setDeltaT.H"
+// Time control will be handled by standard OpenFOAM headers in main code

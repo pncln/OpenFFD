@@ -4,7 +4,7 @@
 bool runForward = true;
 
 // Check if a converged solution already exists
-if (mag(phi) > SMALL && max(mag(U)).value() > SMALL)
+if (mag(gSum(phi)) > SMALL && max(mag(U)).value() > SMALL)
 {
     Info<< "Forward solution fields present, skipping forward solve" << nl << endl;
     runForward = false;
@@ -31,14 +31,23 @@ if (runForward)
         
         Info<< "Forward iteration: " << forwardIter << nl << endl;
         
-        #include "rhoEqn.H"
+        // --- Continuity equation
+        {
+            fvScalarMatrix rhoEqn
+            (
+                fvm::ddt(rho)
+              + fvc::div(phi)
+            );
+
+            rhoEqn.solve();
+        }
         
         // --- Momentum and energy predictor step
         fvVectorMatrix UEqn
         (
             fvm::ddt(rho, U)
-            + fvm::div(phi, U)
-            + turbulence->divDevRhoReff(U)
+          + fvm::div(phi, U)
+          + turbulence->divDevRhoReff(U)
         );
         
         UEqn.relax();
@@ -61,9 +70,10 @@ if (runForward)
                   + (turbulence->divDevRhoReff(U) & U)
                 )
               )
-            ==
-            fvOptions(rho, thermo.he())
         );
+        
+        // Add options to energy equation
+        fvOptions.constrain(eEqn);
         
         eEqn.relax();
         eEqn.solve();
@@ -73,7 +83,48 @@ if (runForward)
         // --- Pressure corrector loop
         while (pimple.correct())
         {
-            #include "pEqn.H"
+            // --- Pressure equation
+            volScalarField rAU(1.0/UEqn.A());
+            surfaceScalarField rhorAUf("rhorAUf", fvc::interpolate(rho*rAU));
+            
+            volVectorField HbyA("HbyA", U);
+            HbyA = rAU*UEqn.H();
+            
+            surfaceScalarField phiHbyA
+            (
+                "phiHbyA",
+                fvc::interpolate(rho)*fvc::flux(HbyA)
+              + rhorAUf*fvc::ddtCorr(rho, U, phi)
+            );
+            
+            // Update the pressure BCs
+            constrainPressure(p, rho, U, phiHbyA, rhorAUf, pimple.dict());
+            
+            // Non-orthogonal pressure corrector loop
+            while (pimple.correctNonOrthogonal())
+            {
+                // Pressure equation
+                fvScalarMatrix pEqn
+                (
+                    fvm::ddt(psi, p)
+                  + fvc::div(phiHbyA)
+                  - fvm::laplacian(rhorAUf, p)
+                );
+                
+                pEqn.solve();
+                
+                if (pimple.finalNonOrthogonalIter())
+                {
+                    phi = phiHbyA - pEqn.flux();
+                }
+            }
+            
+            // Explicitly relax pressure for momentum corrector
+            p.relax();
+            
+            // Momentum corrector
+            U = HbyA - rAU*fvc::grad(p);
+            U.correctBoundaryConditions();
         }
         
         if (pimple.turbCorr())
@@ -81,19 +132,15 @@ if (runForward)
             turbulence->correct();
         }
         
-        // Calculate residuals
-        volScalarField rhoRes = fvc::ddt(rho) + fvc::div(phi);
-        volVectorField URes = fvc::ddt(rho, U) + fvc::div(phi, U) + fvc::grad(p) + turbulence->divDevRhoReff(U);
-        volScalarField eRes = fvc::ddt(rho, thermo.he()) + fvc::div(phi, thermo.he()) - fvc::laplacian(turbulence->alphaEff(), thermo.he());
+        // Calculate some simple convergence metric
+        volScalarField contErr("contErr", fvc::div(phi));
+        scalar sumLocalContErr = sumMag(contErr.primitiveField())*mesh.time().deltaT().value();
+        scalar globalContErr = fvc::domainIntegrate(mag(contErr)).value()*mesh.time().deltaT().value();
         
-        // Get maximum residuals
-        scalar maxRhoRes = gMax(mag(rhoRes));
-        scalar maxURes = gMax(mag(URes));
-        scalar maxERes = gMax(mag(eRes));
+        maxResidual = globalContErr;
         
-        maxResidual = max(maxRhoRes, max(maxURes, maxERes));
-        
-        Info<< "Maximum residual: " << maxResidual << nl << endl;
+        Info<< "time step continuity errors : sum local = " << sumLocalContErr
+            << ", global = " << globalContErr << nl << endl;
         
         // Check for convergence
         if (maxResidual < forwardTol)
@@ -129,6 +176,5 @@ gradU = fvc::grad(U);
 mu = thermo.mu();
 rhoU = rho*U;
 
-// Calculate the objective function
-objectiveValue = calculateObjective();
-Info<< "Objective function value: " << objectiveValue << nl << endl;
+    // Calculate objective function - will be implemented in setupObjectiveFunction.H
+    Info<< "Objective function calculation will be performed during adjoint solve" << nl << endl;

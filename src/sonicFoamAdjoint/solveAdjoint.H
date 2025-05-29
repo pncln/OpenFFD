@@ -97,15 +97,21 @@ if (objectiveName == "drag" || objectiveName == "lift")
             // For pressure contribution: dJ/dp = n.d where n is normal vector and d is direction
             // For viscous contribution, more complex relations are needed
             
-            vectorField nf = Sf / magSf;
-            scalarField dirContrib = nf & direction;
+            vectorField nf("nf", Sf / magSf);
+            scalarField dirContrib("dirContrib", nf & direction);
             
             // Apply boundary derivatives
             // This is simplified - real implementation would handle viscous terms too
             forAll(dirContrib, faceI)
             {
                 // Boundary contribution only - will be used for flux calculations
-                p.boundaryFieldRef()[patchI].refValue()[faceI] = dirContrib[faceI];
+                // In OpenFOAM v2406, we need to check the patch type and use appropriate access method
+                if (isA<fixedValueFvPatchScalarField>(p.boundaryField()[patchI]))
+                {
+                    fixedValueFvPatchScalarField& fixedPatch = 
+                        refCast<fixedValueFvPatchScalarField>(p.boundaryFieldRef()[patchI]);
+                    fixedPatch[faceI] = dirContrib[faceI];
+                }
             }
         }
     }
@@ -140,14 +146,15 @@ do
         psi_rhoEqn.solve();
         
         // Calculate the max residual
-        maxPsi_rhoRes = gMax(mag(psi_rhoRes));
+        maxPsi_rhoRes = max(cmptMax(mag(psi_rhoRes.primitiveField())));
         
         Info<< "Max psi_rho residual: " << maxPsi_rhoRes << nl << endl;
     }
     
     // --- Solve the adjoint momentum equation
     {
-        volTensorField gradU = fvc::grad(U);
+        // Use explicit conversion to avoid ambiguity in OpenFOAM v2406
+        volTensorField gradU("gradU", fvc::grad(U));
         
         fvVectorMatrix psi_UEqn
         (
@@ -168,14 +175,14 @@ do
         psi_UEqn.solve();
         
         // Calculate the max residual
-        maxPsi_URes = gMax(mag(psi_URes));
+        maxPsi_URes = max(cmptMax(mag(psi_URes.primitiveField())));
         
         Info<< "Max psi_U residual: " << maxPsi_URes << nl << endl;
     }
     
     // --- Solve the adjoint energy equation
     {
-        volScalarField& he = thermo.he();
+        // Already have access to thermo.he(), no need to create a reference
         
         fvScalarMatrix psi_eEqn
         (
@@ -195,7 +202,7 @@ do
         psi_eEqn.solve();
         
         // Calculate the max residual
-        maxPsi_eRes = gMax(mag(psi_eRes));
+        maxPsi_eRes = max(cmptMax(mag(psi_eRes.primitiveField())));
         
         Info<< "Max psi_e residual: " << maxPsi_eRes << nl << endl;
     }

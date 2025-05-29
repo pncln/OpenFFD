@@ -8,9 +8,9 @@ meshSensitivity = dimensionedVector("zero", meshSensitivity.dimensions(), vector
 // We need to calculate: dJ/dx = dJ/dU * dU/dx + dJ/dp * dp/dx + ...
 
 // Create sensitivity contributions from each state variable
-volVectorField gradRho = fvc::grad(rho);
-volTensorField gradP = fvc::grad(p);
-volTensorField gradT = fvc::grad(T);
+volVectorField gradRho("gradRho", fvc::grad(rho));
+volVectorField gradP("gradP", fvc::grad(p));
+volVectorField gradT("gradT", fvc::grad(T));
 
 // Calculate the geometric sensitivity contributions
 // This is a simplified version; the full version would include all terms from the PDE
@@ -40,15 +40,9 @@ forAll(mesh.boundaryMesh(), patchI)
         const vectorField& nf = Sf / magSf;
         
         // Get the adjoint variables on the patch
-        const scalarField& psi_rho_p = psi_rho.boundaryField()[patchI];
-        const vectorField& psi_U_p = psi_U.boundaryField()[patchI];
-        const scalarField& psi_e_p = psi_e.boundaryField()[patchI];
         
         // Get the primal variables on the patch
         const scalarField& p_p = p.boundaryField()[patchI];
-        const vectorField& U_p = U.boundaryField()[patchI];
-        const scalarField& rho_p = rho.boundaryField()[patchI];
-        const scalarField& T_p = T.boundaryField()[patchI];
         
         // Placeholder for patch sensitivities
         vectorField patchSensitivity(patch.size(), vector::zero);
@@ -91,7 +85,6 @@ forAll(mesh.boundaryMesh(), patchI)
             forAll(patch, faceI)
             {
                 // Lever arm
-                vector r = Cf[faceI] - center;
                 
                 // Calculate sensitivity due to change in surface normal
                 // This affects the pressure force direction
@@ -121,11 +114,63 @@ forAll(mesh.boundaryMesh(), patchI)
 }
 
 // Optional: Smoothing of sensitivities to avoid noisy surfaces
-// Using OpenFOAM's fvc::smooth utility
-fvc::smooth(meshSensitivity, 0.5);
+// Using OpenFOAM's fvc::smooth utility - apply component-wise for vector field
+{
+    // Create temporary fields for each component
+    volScalarField sensX
+    (
+        IOobject
+        (
+            "sensX",
+            mesh.time().timeName(),
+            mesh,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        meshSensitivity.component(0)
+    );
+    
+    volScalarField sensY
+    (
+        IOobject
+        (
+            "sensY",
+            mesh.time().timeName(),
+            mesh,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        meshSensitivity.component(1)
+    );
+    
+    volScalarField sensZ
+    (
+        IOobject
+        (
+            "sensZ",
+            mesh.time().timeName(),
+            mesh,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        meshSensitivity.component(2)
+    );
+    
+    // Apply smoothing to each component
+    fvc::smooth(sensX, 0.5);
+    fvc::smooth(sensY, 0.5);
+    fvc::smooth(sensZ, 0.5);
+    
+    // Reconstruct the vector field
+    forAll(meshSensitivity, cellI)
+    {
+        meshSensitivity[cellI] = vector(sensX[cellI], sensY[cellI], sensZ[cellI]);
+    }
+}
 
 // Calculate the L2 norm of the sensitivity field
-scalar sensNorm = Foam::sqrt(gSum(magSqr(meshSensitivity)) / meshSensitivity.size());
+volScalarField magSqrSens("magSqrSens", magSqr(meshSensitivity));
+scalar sensNorm = Foam::sqrt(gSum(magSqrSens) / meshSensitivity.size());
 
 Info<< "Sensitivity L2 norm: " << sensNorm << nl << endl;
 

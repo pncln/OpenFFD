@@ -3,10 +3,20 @@
 Info<< "Exporting sensitivities for integration with OpenFFD" << nl << endl;
 
 // Create a directory to store sensitivities
-if (!runTime.path().exists("sensitivities"))
+if (!isDir(runTime.path()/"sensitivities"))
 {
     mkDir(runTime.path()/"sensitivities");
 }
+
+// Check which export formats are requested
+bool exportOpenFOAM = (sensFormat == "all" || sensFormat == "openfoam");
+bool exportOpenFFD = (sensFormat == "all" || sensFormat == "openffd");
+bool exportCSV = (sensFormat == "all" || sensFormat == "csv");
+
+Info<< "Export formats:" << nl
+    << "  OpenFOAM: " << (exportOpenFOAM ? "yes" : "no") << nl
+    << "  OpenFFD: " << (exportOpenFFD ? "yes" : "no") << nl
+    << "  CSV: " << (exportCSV ? "yes" : "no") << nl << endl;
 
 // Export sensitivities in OpenFOAM native format
 // (they're already written to the time directory)
@@ -72,23 +82,37 @@ forAll(patchesToExport, i)
     }
 }
 
-// Export sensitivities in VTK format for visualization
+// Export sensitivities using standard OpenFOAM file format for visualization
+if (exportOpenFOAM)
 {
     #include "createVTKMesh.H"
     
-    // Create a VTK file for the mesh with sensitivities
-    vtkMesh.addPointData(meshSensitivity, "sensitivity");
+    // Write mesh sensitivity as a volVectorField
+    meshSensitivity.write();
     
-    // Also add boundary sensitivity for surfaces
-    vtkMesh.addPointData(boundarySensitivity, "boundarySensitivity");
+    // Write boundary sensitivity as a pointVectorField
+    boundarySensitivity.write();
     
-    // Write the VTK file
-    vtkMesh.write(runTime.path()/"sensitivities"/"sensitivity.vtk");
+    // Create a copy with a more descriptive name for post-processing
+    volVectorField sensForVis
+    (
+        IOobject
+        (
+            "sensitivity",
+            runTime.timeName(),
+            mesh,
+            IOobject::NO_READ,
+            IOobject::AUTO_WRITE
+        ),
+        meshSensitivity
+    );
+    sensForVis.write();
     
-    Info<< "Exported sensitivities in VTK format for visualization" << nl << endl;
+    Info<< "Exported sensitivities in OpenFOAM format for visualization" << nl << endl;
 }
 
 // Also export in a simple CSV format for easy parsing by external tools
+if (exportCSV)
 {
     OFstream csvFile(runTime.path()/"sensitivities"/("sensitivity_" + objectiveName + ".csv"));
     
@@ -108,6 +132,7 @@ forAll(patchesToExport, i)
 }
 
 // Export an OpenFFD-specific format that contains only the surface points and sensitivities
+if (exportOpenFFD)
 {
     // First collect all boundary faces from the patches of interest
     label totalFaces = 0;
