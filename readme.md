@@ -376,7 +376,7 @@ If you use OpenFFD in your research, please cite:
 ---
 
 <div align="center">
-  <sub>Built with ❤️ by Emil Mammadli and contributors.</sub>
+  <sub>Built with ❤️ by Emil Mammadli.</sub>
 </div>
 
 ## 🧩 Project Structure
