@@ -246,7 +246,8 @@ class FFDVisualizationWidget(QWidget):
             visible: Whether the mesh should be visible
         """
         if self.mesh_actor is not None:
-            self.plotter.set_actor_visibility(self.mesh_actor, visible)
+            self.mesh_actor.SetVisibility(visible)
+            self.plotter.render()
     
     def toggle_ffd_visibility(self, visible: bool):
         """Toggle the visibility of the FFD control box.
@@ -255,7 +256,8 @@ class FFDVisualizationWidget(QWidget):
             visible: Whether the FFD control box should be visible
         """
         if self.ffd_actor is not None:
-            self.plotter.set_actor_visibility(self.ffd_actor, visible)
+            self.ffd_actor.SetVisibility(visible)
+            self.plotter.render()
     
     def reset_camera(self):
         """Reset the camera to focus on the scene."""
