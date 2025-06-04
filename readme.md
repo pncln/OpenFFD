@@ -14,9 +14,9 @@
 
 ## 📋 Overview
 
-OpenFFD is a high-performance, open-source framework for advanced Free-Form Deformation (FFD) in computational design and optimization. It provides both standard and hierarchical FFD capabilities for precise shape manipulation in aerodynamic optimization, structural analysis, and other engineering design workflows.
+OpenFFD represents a high-performance open-source system which enables advanced Free-Form Deformation (FFD) operations in computational design and optimization. The framework provides both standard and hierarchical FFD capabilities which enable precise shape manipulation for applications in aerodynamic optimization and structural analysis as well as other engineering design workflows.
 
-The software leverages parallel processing for handling large-scale meshes efficiently, making it suitable for industrial-grade CFD/FEA applications and seamlessly integrates with adjoint-based optimization frameworks like OpenFOAM.
+The system uses parallel processing to handle big mesh data sets efficiently which makes it appropriate for industrial CFD/FEA applications and allows integration with adjoint-based optimization frameworks like OpenFOAM.
 
 <div align="center">
   <img src="https://github.com/pncln/openffd/raw/main/docs/images/hffd1.png" alt="FFD Visualization Example" width="700px">
@@ -24,14 +24,14 @@ The software leverages parallel processing for handling large-scale meshes effic
 
 ## ✨ Key Features
 
-- **Hierarchical FFD**: Multi-resolution FFD with customizable depth and subdivision factors for targeted control in critical regions
-- **Universal Mesh Support**: Processes Fluent mesh (.cas, .msh), VTK, STL, OBJ, Gmsh and more through a unified interface
-- **Enhanced Zone Extraction**: Advanced zone detection and extraction from complex CFD meshes with robust boundary handling
-- **OpenFOAM Integration**: Direct integration with OpenFOAM and sonicFoamAdjoint for shape optimization of supersonic flows
-- **Parallel Processing**: Optimized multi-core processing for handling large-scale meshes with millions of points efficiently
-- **Custom Bounds Control**: Precise control box dimensions in both standard and hierarchical FFD modes
-- **Advanced Visualization**: Interactive 3D visualization with level-based coloring for hierarchical FFD structures
-- **Unified GUI**: Integrated interface for both standard and hierarchical FFD with seamless switching between modes
+Hierarchical FFD: The framework features multiple-level FFD with adjustable subdivision parameters for precise control over specific regions.
+- **Universal Mesh Support**: The system accepts Fluent mesh (.cas,.msh) files as well as VTK, STL, OBJ and Gmsh and more through a unified interface.
+Enhanced Zone Extraction: Advanced detection and extraction functionality of complex CFD zones combined with robust boundary handling capabilities.
+OpenFOAM Integration: Direct integration with OpenFOAM and sonicFoamAdjoint for shape optimization of supersonic flows.
+Parallel Processing: Optimized multi-core processing for handling large-scale meshes with millions of points efficiently
+Custom Bounds Control: Precise control box dimensions in both standard and hierarchical FFD modes
+Advanced Visualization: Interactive 3D visualization with level-based coloring for hierarchical FFD structures
+- Unified GUI: Integrated interface for both standard and hierarchical FFD with seamless switching between modes
 
 ## 🚀 Installation
 
@@ -40,7 +40,7 @@ The software leverages parallel processing for handling large-scale meshes effic
 ```bash
 git clone https://github.com/pncln/openffd.git
 cd openffd
-pip install -e .
+pip install -e.
 ```
 
 With optional dependencies:
@@ -65,8 +65,8 @@ pip install -e ".[all]"
 - **Mesh Processing**: meshio (optional)
 - **Visualization**: PyVista (>= 0.37.0), PyVistaQt
 - **GUI**: PyQt6 for the graphical user interface
-- **OpenFOAM Integration**: OpenFOAM (v2406+) for sonicFoamAdjoint integration
-- **Development**: pytest, black, isort, mypy, flake8, pre-commit
+OpenFOAM Integration: OpenFOAM (v2406+) for sonicFoamAdjoint integration.
+Development: pytest, black, isort, mypy, flake8, pre-commit
 
 ## 🏁 Quick Start
 
@@ -122,22 +122,19 @@ python -m openffd <mesh_file> [options]
 
 | Option | Description |
 |--------|-------------|
-| `--list-zones` | List available zones in the mesh file |
-| `--extract-boundary NAME` | Extract specific boundary/zone for FFD application |
+| `--list-zones` | List available zones in the mesh file || `--extract-boundary NAME` | Extract specific boundary/zone for FFD application |
 | `--save-boundary FILE` | Save extracted boundary mesh to a separate file |
 
 #### OpenFOAM Integration
 
 | Option | Description |
-|--------|-------------|
 | `--export-openfoam` | Export in format compatible with OpenFOAM integration |
 | `--adjoint-format` | Format FFD for sonicFoamAdjoint sensitivity mapping |
-| `--export-xyz` | Export in DAFoam-compatible .xyz format |
+| `--export-xyz` | Export in DAFoam-compatible.xyz format |
 
 #### Boundary Options
 
 | Option | Description |
-|--------|-------------|
 | `--x-min VALUE` | Minimum x-coordinate for custom bounds |
 | `--x-max VALUE` | Maximum x-coordinate for custom bounds |
 | `--y-min VALUE` | Minimum y-coordinate for custom bounds |
@@ -161,7 +158,7 @@ python -m openffd <mesh_file> [options]
 
 ### Graphical User Interface
 
-OpenFFD includes a full-featured GUI that can be launched with:
+The graphical interface of OpenFFD launches after users initiate the application through this command:
 
 ```bash
 python -m openffd
@@ -169,27 +166,26 @@ python -m openffd
 
 #### Unified FFD Panel
 
-The GUI features a unified FFD panel that allows switching between standard and hierarchical FFD modes:
+The graphical user interface contains an FFD panel that enables users to shift between standard and hierarchical FFD modes:
 
-- **Standard FFD Mode**: Configure control point dimensions, margins, and custom bounds
-- **Hierarchical FFD Mode**: Configure base dimensions, hierarchy depth, subdivision factors, and custom bounds
+The user interface includes a standard FFD Mode that allows users to adjust control point dimensions alongside margins and custom bounds. The Hierarchical FFD Mode contains configuration options for base dimensions and hierarchy depth as well as subdivision factors and custom bounds.
 
 #### Key GUI Features
 
-- **Mesh Loading**: Support for all mesh formats with automatic zone detection
-- **Zone Extraction**: UI for listing and extracting specific zones and boundaries
-- **Interactive 3D View**: Rotate, pan, and zoom with color-coded levels for hierarchical FFD
-- **Custom Bounds**: Set precise control box dimensions in both FFD modes
-- **Export Options**: Export FFD configurations in various formats for optimization frameworks
-- **Parallel Processing**: Configure parallel processing parameters for large meshes
+The application accepts all mesh formats which automatically detect zones during loading.
+A user interface lets users view and extract particular zones together with their boundaries.
+The application features an interactive 3D viewer that enables users to rotate and pan while zooming between levels of hierarchical FFD through color coding.
+The application enables users to specify exact control box dimensions in both Standard and Hierarchical FFD modes.
+The application provides multiple export options that allow users to save FFD configurations for optimization frameworks.
+The system interface lets users adjust parallel processing parameters when working with extensive mesh data.
 
 #### OpenFOAM Integration
 
-The GUI supports direct integration with OpenFOAM:
+The software interface enables seamless integration with OpenFOAM functionality.
 
-1. **Export for sonicFoamAdjoint**: Format FFD for use with the adjoint solver
-2. **Sensitivity Mapping**: Map adjoint sensitivities to FFD control points
-3. **Shape Optimization**: Configure FFD for supersonic flow shape optimization
+1. Users can export FFD for sonicFoamAdjoint solver applications.
+The system creates mappings between FFD control points and adjoint sensitivity values.
+The system enables FFD setup for supersonic flow-based shape optimization applications.
 
 #### Parallel Processing Options
 
@@ -210,35 +206,33 @@ The GUI supports direct integration with OpenFOAM:
 | `--force-ascii` | Force ASCII reading for Fluent mesh |
 | `--force-binary` | Force binary reading for Fluent mesh |
 
-
 ### Example Workflows
 
 #### Basic Workflow
 
-```bash
-# Generate and visualize an FFD box around a mesh
+Users can generate and visualize FFD boxes around meshes using this command:
+
 python -m openffd wing.msh --dims 8 6 4 --plot
 ```
 
 #### Aerodynamic Optimization
 
-```bash
-# Generate high-resolution control box for wing optimization with custom bounds
+This command produces detailed wing optimization control boxes from the wing surface with defined boundaries.
+
 python -m openffd wing.msh --patch wing_surface --dims 12 8 6 --output wing_ffd.xyz --export-xyz \
     --x-min 0.0 --x-max 1.0 --y-min -0.5 --y-max 0.5
-```
 
 #### Large Mesh Processing with Parallel Execution
 
-```bash
-# Process a large mesh with parallel execution
+The code runs this command for large mesh processing through parallel execution:
+
 python -m openffd large_mesh.msh --dims 75 50 2 --parallel --parallel-workers 8 --plot
 ```
 
 #### Export to Plot3D Format
 
 ```bash
-# Generate an FFD box and export to Plot3D format for CFD post-processing
+# Create an FFD box for aircraft meshing with 20x15x10 dimensions then export to Plot3D format for CFD analysis.
 python -m openffd aircraft.msh --dims 20 15 10 --output aircraft_ffd.p3d --plot
 ```
 
@@ -250,11 +244,11 @@ OpenFFD provides advanced visualization capabilities for examining the generated
 
 The `--plot` flag enables a feature-rich interactive 3D visualization:
 
-- **Complete Grid Visualization**: View all control points connected by lines in each dimension (x, y, z)
-- **Original Mesh Display**: See the original mesh geometry with the FFD box overlaid
-- **Surface Representation**: Utilize face connectivity data for accurate surface rendering
-- **Zone Coloring**: Distinguish different mesh zones with automatic color assignment
-- **Parallel Processing**: Leverage multi-core capabilities for large mesh visualization
+- **Complete Grid Visualization**: All control points are displayed by lines in each dimension (x, y, z)
+- **Original Mesh Display**: View the original mesh geometry with the FFD box overlaid.
+- **Surface Representation**: Utilize face connectivity data for accurate surface rendering.
+- **Zone Coloring**: Distinguish different mesh zones with automatic color assignment.
+- **Parallel Processing**: Leverage multi-core capabilities for large mesh visualization.
 
 ### Interactive Controls
 
@@ -262,12 +256,12 @@ The `--plot` flag enables a feature-rich interactive 3D visualization:
 - **Zoom**: Scroll wheel
 - **Pan**: Right-click and drag
 - **Screenshot**: Press 'S' key
-- **Reset View**: Press 'R' key
+- **Reset View**: Press 'R' key.
 
 ### Customization Options
 
 ```bash
-# Customize visualization with point size, color, and transparency
+# Custom visualization by setting point size, color, and transparency for the FFD output
 python -m openffd mesh.msh --plot --ffd-point-size 8.0 --ffd-color blue --ffd-alpha 0.7
 
 # View from a specific axis
@@ -281,7 +275,7 @@ python -m openffd large_mesh.msh --plot --parallel-viz
 
 OpenFFD supports multiple output formats for different downstream applications:
 
-### .3df Format (Default)
+###.3df Format (Default)
 
 Standard FFD control box format that includes dimensional information:
 
@@ -292,7 +286,7 @@ x2 y2 z2
 ...
 ```
 
-### .xyz Format (DAFoam-compatible)
+###.xyz Format (DAFoam-compatible)
 
 A simplified format compatible with DAFoam and other optimization frameworks:
 
@@ -324,7 +318,7 @@ OpenFFD is designed to integrate seamlessly with various optimization frameworks
 ### Aerodynamic Shape Optimization
 
 - **DAFoam**: Direct integration for gradient-based aerodynamic shape optimization
-- **SU2**: Compatible with the SU2 CFD suite's deformation tools
+- **SU2**: Compatible with the SU2 CFD suite’s deformation tools
 - **OpenMDAO**: Ready for inclusion in multidisciplinary optimization workflows
 
 ### General Purpose Optimization
@@ -350,7 +344,7 @@ control_points, bbox = create_ffd_box(
 )
 
 # Use in optimization framework
-# ...
+#...
 ```
 
 ## 📜 License
@@ -404,35 +398,29 @@ openffd/
 
 ### Parallel Processing
 
-OpenFFD utilizes parallel processing for handling large meshes efficiently:
+OpenFFD utilizes parallel processing for handling large meshes efficiently:```bash
+Python runs the openffd tool on large_mesh.msh with parallel processing enabled by using 8 worker processes.
 
-```bash
-# Enable parallel processing with 8 worker processes
-python -m openffd large_mesh.msh --parallel --parallel-workers 8
+When you run the command with the thread-based parallelism method you can lower memory usage.
+The command to use thread-based parallelism for parallel processing can be seen below.
+The parallelization threshold can be adjusted by using python -m openffd mesh.msh --parallel --parallel-threshold 500000
 
-# Use thread-based parallelism for lower memory usage
-python -m openffd large_mesh.msh --parallel --parallel-method thread
-
-# Adjust parallelization threshold
-python -m openffd mesh.msh --parallel --parallel-threshold 500000
-```
-
-For more details, see the [Parallel Processing Guide](docs/parallel_processing.md).
+The Parallel Processing Guide is available for further information in the docs/parallel_processing.md section.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how you can help:
+All help in the form of contributions is welcome. Here’s how you can help:
 
 1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Install development dependencies: `pip install -e ".[dev]"`
-4. Set up pre-commit hooks: `pre-commit install`
+2. Create your feature branch: git checkout -b feature/amazing-feature
+3. Install development dependencies: pip install -e ".[dev]"
+4. Set up pre-commit hooks: pre-commit install
 5. Make your changes (ensure tests pass and code is formatted)
-6. Commit your changes: `git commit -m 'Add amazing feature'`
-7. Push to the branch: `git push origin feature/amazing-feature`
+6. Commit your changes: git commit -m 'Add amazing feature'
+7. Push to the branch: git push origin feature/amazing-feature
 8. Open a Pull Request
 
 ## 🙏 Acknowledgments
 
-- Thanks to all contributors who have helped shape this project
-- Special thanks to the computational design and CFD communities for valuable feedback
+Thanks to all the contributors who have contributed to this project
+A special thanks to the computational design and CFD communities for their feedback
