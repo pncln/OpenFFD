@@ -17,7 +17,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtGui import QFont, QColor
 
 from openffd.gui.utils import show_error_dialog, show_info_dialog
-from openffd.mesh.fluent import FluentMeshReader
+from openffd.mesh.fluent_reader import FluentMeshReader
 
 # Configure logging
 logger = logging.getLogger(__name__)

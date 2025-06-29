@@ -200,7 +200,7 @@ class ZoneExtractor:
     
     def _load_fluent_mesh(self) -> None:
         """Load a Fluent mesh and extract zone information using our custom parser."""
-        from openffd.mesh.fluent_parser import read_fluent_mesh
+        from openffd.mesh.fluent_reader import read_fluent_mesh
         
         logger.info(f"Loading Fluent mesh using custom parser: {self.mesh_file}")
         fluent_mesh = read_fluent_mesh(self.mesh_file, debug=True)

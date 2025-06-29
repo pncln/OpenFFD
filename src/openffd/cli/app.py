@@ -17,7 +17,7 @@ from openffd.core.config import FFDConfig
 from openffd.core.control_box import create_ffd_box, extract_patch_points
 from openffd.core.hierarchical import create_hierarchical_ffd, HierarchicalFFD
 from openffd.io.export import write_ffd_3df, write_ffd_xyz
-from openffd.mesh.fluent import FluentMeshReader
+from openffd.mesh.fluent_reader import FluentMeshReader
 from openffd.mesh.general import read_general_mesh, is_fluent_mesh
 from openffd.utils.parallel import ParallelConfig
 from openffd.visualization.ffd_viz import visualize_ffd

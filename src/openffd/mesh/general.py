@@ -395,7 +395,7 @@ def extract_patch_points(mesh_data: Any, patch_name: str) -> np.ndarray:
         ValueError: If the patch is not found or contains no nodes
     """
     # Import FluentMeshReader here to avoid circular imports
-    from openffd.mesh.fluent import FluentMeshReader
+    from openffd.mesh.fluent_reader import FluentMeshReader
     
     # Handle Fluent mesh
     if isinstance(mesh_data, FluentMeshReader):

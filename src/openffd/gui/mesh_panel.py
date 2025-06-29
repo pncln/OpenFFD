@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 
 from openffd.mesh.general import read_general_mesh, is_fluent_mesh
-from openffd.mesh.fluent import FluentMeshReader
+from openffd.mesh.fluent_reader import FluentMeshReader
 from openffd.gui.utils import show_error_dialog
 
 # Configure logging

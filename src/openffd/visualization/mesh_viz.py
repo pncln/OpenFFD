@@ -103,7 +103,7 @@ def visualize_mesh_with_patches(
         return
 
     # Import mesh related modules here to avoid circular imports
-    from openffd.mesh.fluent import FluentMeshReader
+    from openffd.mesh.fluent_reader import FluentMeshReader
     
     # Track visualization timing
     start_time = time.time()
@@ -375,7 +375,7 @@ def visualize_mesh_with_patches_pyvista(
         raise ImportError("PyVista is required for this visualization method")
     
     # Import mesh related modules here to avoid circular imports
-    from openffd.mesh.fluent import FluentMeshReader
+    from openffd.mesh.fluent_reader import FluentMeshReader
     
     # Track visualization timing
     start_time = time.time()
