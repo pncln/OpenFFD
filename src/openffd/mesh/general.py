@@ -418,7 +418,9 @@ def extract_zone_mesh(mesh_data: Any, zone_name: str) -> Optional[Dict[str, Any]
             if hasattr(zone, 'faces') and zone.faces:
                 # Create a mapping from original point indices to zone point indices
                 point_indices = zone.get_point_indices()
-                point_index_map = {orig_idx: new_idx for new_idx, orig_idx in enumerate(sorted(point_indices))}
+                # CRITICAL: Sort point_indices to ensure consistent order (set has no guaranteed order)
+                sorted_point_indices = sorted(point_indices)
+                point_index_map = {orig_idx: new_idx for new_idx, orig_idx in enumerate(sorted_point_indices)}
                 
                 # Extract faces with remapped indices
                 for face in zone.faces:

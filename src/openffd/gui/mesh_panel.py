@@ -223,12 +223,14 @@ class MeshPanel(QWidget):
             if format_text == "Auto Detect":
                 # Try to detect Fluent mesh first
                 if is_fluent_mesh(self.mesh_file_path):
-                    self._load_fluent_mesh(use_binary)
+                    # Force ASCII mode to use native parser
+                    self._load_fluent_mesh(use_binary=False)
                 else:
                     # Generic mesh reader
                     self._load_generic_mesh()
             elif format_text == "Fluent":
-                self._load_fluent_mesh(use_binary)
+                # Force ASCII mode to use native parser
+                self._load_fluent_mesh(use_binary=False)
             else:
                 # Generic mesh reader for other formats
                 self._load_generic_mesh()
