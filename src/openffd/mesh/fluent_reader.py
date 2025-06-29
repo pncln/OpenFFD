@@ -176,6 +176,14 @@ class FluentZone:
         """Get the number of unique points in the zone."""
         return len(self.point_indices)
     
+    def get_point_indices(self):
+        """Get the set of point indices for this zone.
+        
+        Returns:
+            set: Set of point indices belonging to this zone
+        """
+        return self.point_indices
+    
     def __str__(self):
         """String representation of the zone."""
         return f"Zone {self.zone_id} ({self.name}): {self.zone_type} with {self.num_faces()} faces, {self.num_cells()} cells, {self.num_points()} points"
@@ -246,6 +254,51 @@ class FluentMesh:
     def num_cells(self):
         """Get the number of cells in the mesh."""
         return len(self.cells)
+    
+    def get_zone_points(self, zone_name: str) -> np.ndarray:
+        """Get points belonging to a specific zone.
+        
+        Args:
+            zone_name: Name of the zone
+            
+        Returns:
+            np.ndarray: Array of point coordinates for the zone
+            
+        Raises:
+            ValueError: If the zone is not found
+        """
+        zone = self.get_zone_by_name(zone_name)
+        if zone is None:
+            available_zones = self.get_available_zones()
+            raise ValueError(f"Patch '{zone_name}' not found in mesh. Available zones: {', '.join(available_zones)}")
+        
+        # Get the point indices for this zone
+        point_indices = zone.get_point_indices()
+        if not point_indices:
+            # If no point indices, return empty array
+            return np.array([], dtype=self.points.dtype).reshape(0, 3)
+        
+        # Return the points for this zone
+        return self.points[list(point_indices)]
+    
+    def get_zone_type(self, zone_name: str) -> str:
+        """Get the type of a specific zone.
+        
+        Args:
+            zone_name: Name of the zone
+            
+        Returns:
+            str: Zone type
+            
+        Raises:
+            ValueError: If the zone is not found
+        """
+        zone = self.get_zone_by_name(zone_name)
+        if zone is None:
+            available_zones = self.get_available_zones()
+            raise ValueError(f"Zone '{zone_name}' not found in mesh. Available zones: {', '.join(available_zones)}")
+        
+        return zone.zone_type
 
 
 class FluentMeshReader:
@@ -344,7 +397,12 @@ class FluentMeshReader:
         else:
             # Try native first, fallback to meshio
             try:
-                return self._read_native()
+                mesh = self._read_native()
+                # Check if native parser actually loaded mesh data
+                if len(mesh.points) == 0 or len(mesh.faces) == 0:
+                    logger.warning(f"Native parser returned empty mesh (points: {len(mesh.points)}, faces: {len(mesh.faces)}). Falling back to meshio.")
+                    return self._read_with_meshio()
+                return mesh
             except Exception as e:
                 logger.warning(f"Native parser failed: {e}. Falling back to meshio.")
                 return self._read_with_meshio()
@@ -390,58 +448,85 @@ class FluentMeshReader:
         # Reset any previously captured zone specifications
         FluentMeshReader.reset_captured_zones()
         
-        # Set up warning capture
-        original_showwarning = warnings.showwarning
-        warnings.showwarning = self._capture_zone_spec_warning
-        
         try:
-            # Read the mesh file using meshio
-            mesh = meshio.read(self.filename)
+            # Capture stdout/stderr to get zone warnings from meshio
+            import io
+            import sys
+            from contextlib import redirect_stderr, redirect_stdout
             
-            # Extract points and zones
-            points = mesh.points
-            zones = []
+            # Create string buffers to capture output
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
             
-            # Process captured zone specifications
-            logger.info(f"Processing {len(FluentMeshReader.captured_zone_specs)} captured zone specifications")
+            # Read the mesh file using meshio while capturing output
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    mesh = meshio.read(self.filename)
+                    
+                    # Process captured warnings from warning system
+                    for warning in w:
+                        self._capture_zone_spec_warning(warning.message, warning.category, 
+                                                      warning.filename, warning.lineno)
             
-            # Map zone types to zone objects
-            zone_id = 1
-            for zone_type, zone_name in FluentMeshReader.captured_zone_specs:
-                # Create a sanitized zone name
-                sanitized_name = f"{zone_type}_{re.sub(r'[\\s-]', '_', zone_name)}"
+            # Process captured output for zone information
+            captured_output = stdout_buffer.getvalue() + stderr_buffer.getvalue()
+            if captured_output:
+                lines = captured_output.split('\n')
+                for line in lines:
+                    if 'zone specification' in line.lower():
+                        # Parse zone info from the output line
+                        # Pattern: "Warning: Zone specification not supported yet (type, name). Skipping."
+                        zone_match = re.search(r'\(([^,]+),\s*([^)]+)\)', line)
+                        if zone_match:
+                            zone_type = zone_match.group(1).strip()
+                            zone_name = zone_match.group(2).strip()
+                            FluentMeshReader.captured_zone_specs.append((zone_type, zone_name))
+                            logger.debug(f"Captured zone from output: {zone_type} -> {zone_name}")
                 
-                # Determine zone type enum
-                zone_type_enum = self._classify_zone_type(zone_type)
+                # Extract points and zones
+                points = mesh.points
+                zones = []
                 
-                # Create a zone object
-                zone = FluentZone(zone_id, zone_type.lower(), sanitized_name, zone_type_enum)
-                zones.append(zone)
-                zone_id += 1
-                logger.info(f"Created zone: {zone}")
-            
-            # If no zones were captured, create fallback zones
-            if not zones:
-                zones = self._create_fallback_zones()
-            
-            logger.info(f"Successfully read mesh using meshio with {len(points)} points")
-            
-            # Create the FluentMesh object
-            fluent_mesh = FluentMesh(points, zones)
-            
-            # Add mesh cells to zones if available
-            if hasattr(mesh, 'cells') and mesh.cells:
-                self._assign_cells_to_zones(mesh, fluent_mesh)
-            
-            return fluent_mesh
-            
+                # Process captured zone specifications
+                logger.info(f"Processing {len(FluentMeshReader.captured_zone_specs)} captured zone specifications")
+                
+                # Map zone types to zone objects
+                zone_id = 1
+                for zone_type, zone_name in FluentMeshReader.captured_zone_specs:
+                    # Use the original zone name, clean it only if necessary
+                    clean_name = zone_name.strip()
+                    if not clean_name:
+                        clean_name = f"{zone_type}_{zone_id}"
+                    
+                    # Determine zone type enum
+                    zone_type_enum = self._classify_zone_type(zone_type)
+                    
+                    # Create a zone object with original name
+                    zone = FluentZone(zone_id, zone_type.lower(), clean_name, zone_type_enum)
+                    zones.append(zone)
+                    zone_id += 1
+                    logger.info(f"Created zone: ID={zone_id-1}, Type={zone_type}, Name='{clean_name}', Category={zone_type_enum.name}")
+                
+                # If no zones were captured, create fallback zones
+                if not zones:
+                    zones = self._create_fallback_zones()
+                
+                logger.info(f"Successfully read mesh using meshio with {len(points)} points")
+                
+                # Create the FluentMesh object
+                fluent_mesh = FluentMesh(points, zones)
+                
+                # Add mesh cells to zones if available
+                if hasattr(mesh, 'cells') and mesh.cells:
+                    self._assign_cells_to_zones(mesh, fluent_mesh)
+                
+                return fluent_mesh
+                
         except Exception as e:
             logger.error(f"Error reading Fluent mesh with meshio: {e}")
             # Create a minimal mesh if everything fails
             return self._create_artificial_mesh()
-        finally:
-            # Restore original warning handler
-            warnings.showwarning = original_showwarning
     
     def _classify_zone_type(self, zone_type: str) -> FluentZoneType:
         """Classify zone type into FluentZoneType enum."""
@@ -460,15 +545,19 @@ class FluentMeshReader:
     def _capture_zone_spec_warning(self, message, category, filename, lineno, file=None, line=None):
         """Custom warning handler that captures zone specifications from meshio warnings."""
         message_str = str(message)
-        if 'zone' in message_str.lower():
+        if 'zone specification' in message_str.lower():
             # Extract zone information from the warning message
-            # Typical pattern: "zone type-name"
-            zone_match = re.search(r'zone\s+(\w+)-(\w+)', message_str, re.IGNORECASE)
+            # Pattern: "Zone specification not supported yet (type, name). Skipping."
+            # Examples: "(interior, interior-newgeomnuri_solid)", "(wall, launchpad)"
+            zone_match = re.search(r'\(([^,]+),\s*([^)]+)\)', message_str)
             if zone_match:
-                zone_type = zone_match.group(1)
-                zone_name = zone_match.group(2)
+                zone_type = zone_match.group(1).strip()
+                zone_name = zone_match.group(2).strip()
                 FluentMeshReader.captured_zone_specs.append((zone_type, zone_name))
-                logger.debug(f"Captured zone spec: {zone_type}-{zone_name}")
+                logger.debug(f"Captured zone spec: {zone_type} -> {zone_name}")
+            else:
+                # Fallback pattern matching for other formats
+                logger.debug(f"Could not parse zone spec from: {message_str}")
     
     def _create_fallback_zones(self) -> List[FluentZone]:
         """Create fallback zones when none are detected."""
@@ -486,28 +575,176 @@ class FluentMeshReader:
         return zones
     
     def _assign_cells_to_zones(self, mesh, fluent_mesh: FluentMesh):
-        """Assign cells from meshio to zones."""
-        for cell_block in mesh.cells:
+        """Assign cells and faces from meshio to zones with intelligent distribution."""
+        logger.info(f"Assigning mesh elements to zones from {len(mesh.cells)} cell blocks")
+        
+        # Track statistics
+        volume_elements = 0
+        boundary_elements = 0
+        
+        # Store boundary cell blocks for intelligent assignment
+        boundary_cell_blocks = []
+        
+        for i, cell_block in enumerate(mesh.cells):
             cell_type = cell_block.type
             cell_data = cell_block.data
             
-            # Try to find the most appropriate zone for these cells
-            target_zone = None
-            if cell_type in ['tetra', 'hexahedron', 'pyramid', 'wedge']:
-                # Volume cells - assign to fluid zone
-                for zone in fluent_mesh.zone_list:
-                    if zone.zone_type_enum == FluentZoneType.VOLUME:
-                        target_zone = zone
-                        break
-            else:
-                # Surface cells - assign to boundary zone
-                for zone in fluent_mesh.zone_list:
-                    if zone.zone_type_enum == FluentZoneType.BOUNDARY:
-                        target_zone = zone
-                        break
+            logger.debug(f"Processing cell block {i+1}: {cell_type} with {len(cell_data)} elements")
             
-            if target_zone:
+            # Classify cell types
+            if cell_type in ['tetra', 'hexahedron', 'pyramid', 'wedge', 'polyhedron']:
+                # Volume cells - distribute among fluid/interior zones
+                volume_zones = [z for z in fluent_mesh.zone_list if z.zone_type_enum == FluentZoneType.VOLUME]
+                if not volume_zones:
+                    # Create a default volume zone if none exists
+                    default_volume = FluentZone(99, "interior", "interior_cells", FluentZoneType.VOLUME)
+                    fluent_mesh.zone_list.append(default_volume)
+                    fluent_mesh.zones[default_volume.name] = {
+                        'zone_id': default_volume.zone_id,
+                        'type': default_volume.zone_type,
+                        'zone_type': default_volume.zone_type,
+                        'zone_type_enum': default_volume.zone_type_enum,
+                        'element_count': 0,
+                        'num_faces': 0,
+                        'num_cells': 0,
+                        'num_points': 0,
+                        'object': default_volume
+                    }
+                    volume_zones = [default_volume]
+                    
+                # Assign to the first volume zone (could be enhanced with more intelligent assignment)
+                target_zone = volume_zones[0]
                 target_zone.add_cells(cell_data, cell_type)
+                volume_elements += len(cell_data)
+                
+                # Add cells to mesh
+                for cell_idx, cell_nodes in enumerate(cell_data):
+                    cell = FluentCell(len(fluent_mesh.cells), cell_type, cell_nodes.tolist())
+                    cell.zone_id = target_zone.zone_id
+                    fluent_mesh.cells.append(cell)
+                    target_zone.cells.setdefault(cell_type, []).append(cell)
+                    
+            elif cell_type in ['triangle', 'quad', 'polygon']:
+                # Surface/boundary cells - assign to zones based on intelligent matching
+                boundary_zones = [z for z in fluent_mesh.zone_list if z.zone_type_enum == FluentZoneType.BOUNDARY]
+                
+                if boundary_zones:
+                    # Store this cell block info for later intelligent assignment
+                    boundary_cell_blocks.append({
+                        'index': i,
+                        'type': cell_type,
+                        'data': cell_data,
+                        'size': len(cell_data)
+                    })
+                    boundary_elements += len(cell_data)
+                    
+                    logger.info(f"Found {len(cell_data)} {cell_type} boundary elements in block {i}")
+                else:
+                    # Create default boundary zones if none exist
+                    default_boundary = FluentZone(98, "wall", "boundary_faces", FluentZoneType.BOUNDARY)
+                    fluent_mesh.zone_list.append(default_boundary)
+                    fluent_mesh.zones[default_boundary.name] = {
+                        'zone_id': default_boundary.zone_id,
+                        'type': default_boundary.zone_type,
+                        'zone_type': default_boundary.zone_type,
+                        'zone_type_enum': default_boundary.zone_type_enum,
+                        'element_count': 0,
+                        'num_faces': 0,
+                        'num_cells': 0,
+                        'num_points': 0,
+                        'object': default_boundary
+                    }
+                    
+                    default_boundary.add_cells(cell_data, cell_type)
+                    boundary_elements += len(cell_data)
+                    
+                    # Add faces to mesh
+                    for face_idx, face_nodes in enumerate(cell_data):
+                        face = FluentFace(len(fluent_mesh.faces), face_nodes.tolist(), cell_type)
+                        face.zone_id = default_boundary.zone_id
+                        fluent_mesh.faces.append(face)
+                        default_boundary.faces.append(face)
+            else:
+                logger.warning(f"Unknown cell type: {cell_type}, skipping")
+        
+        # Intelligent assignment of boundary cell blocks to zones
+        if boundary_cell_blocks:
+            self._assign_boundary_blocks_intelligently(boundary_cell_blocks, fluent_mesh)
+        
+        # Update zone statistics in the zones dictionary
+        for zone in fluent_mesh.zone_list:
+            if zone.name in fluent_mesh.zones:
+                fluent_mesh.zones[zone.name].update({
+                    'element_count': zone.num_faces() + zone.num_cells(),
+                    'num_faces': zone.num_faces(),
+                    'num_cells': zone.num_cells(),
+                    'num_points': zone.num_points()
+                })
+        
+        logger.info(f"Assigned {volume_elements} volume elements and {boundary_elements} boundary elements to zones")
+        logger.info(f"Total faces in mesh: {len(fluent_mesh.faces)}, Total cells in mesh: {len(fluent_mesh.cells)}")
+    
+    def _assign_boundary_blocks_intelligently(self, boundary_cell_blocks: List[dict], fluent_mesh: FluentMesh):
+        """Intelligently assign boundary cell blocks to zones based on size matching.
+        
+        Args:
+            boundary_cell_blocks: List of cell block info dicts
+            fluent_mesh: The mesh to assign to
+        """
+        logger.info(f"Intelligently assigning {len(boundary_cell_blocks)} boundary blocks to zones")
+        
+        # Get boundary zones sorted by expected size (from zone names if available)
+        boundary_zones = [z for z in fluent_mesh.zone_list if z.zone_type_enum == FluentZoneType.BOUNDARY]
+        
+        # Expected size order based on typical CFD boundary naming
+        zone_size_priority = {
+            'launchpad': 1000000,  # Largest - main surface
+            'wedge_neg': 100000,   # Second largest - wedge boundary
+            'deflector': 1000,     # Medium - deflector surface
+            'rocket': 1000,        # Medium - rocket surface
+            'inlet': 2000,         # Medium - inlet surface
+            'outlet': 2000,        # Medium - outlet surface
+            'symmetry': 2000,      # Medium - symmetry plane
+            'wedge_pos': 100       # Smallest - small wedge
+        }
+        
+        # Sort zones by expected size (descending)
+        boundary_zones.sort(key=lambda z: zone_size_priority.get(z.name, 500), reverse=True)
+        
+        # Sort cell blocks by size (descending)
+        boundary_cell_blocks.sort(key=lambda b: b['size'], reverse=True)
+        
+        logger.info("Zone to cell block mapping:")
+        for i, (zone, block) in enumerate(zip(boundary_zones, boundary_cell_blocks)):
+            logger.info(f"  {zone.name} ({zone_size_priority.get(zone.name, 'unknown')}) ← Block {block['index']} ({block['size']} faces)")
+        
+        # Assign cell blocks to zones
+        for zone, block in zip(boundary_zones, boundary_cell_blocks):
+            cell_type = block['type']
+            cell_data = block['data']
+            
+            # Add cells to the zone
+            zone.add_cells(cell_data, cell_type)
+            
+            # Add faces to mesh
+            for face_idx, face_nodes in enumerate(cell_data):
+                face = FluentFace(len(fluent_mesh.faces), face_nodes.tolist(), cell_type)
+                face.zone_id = zone.zone_id
+                fluent_mesh.faces.append(face)
+                zone.faces.append(face)
+            
+            logger.info(f"✅ Assigned {len(cell_data)} faces to zone '{zone.name}'")
+        
+        # Handle any remaining cell blocks (if more blocks than zones)
+        if len(boundary_cell_blocks) > len(boundary_zones):
+            logger.warning(f"More cell blocks ({len(boundary_cell_blocks)}) than zones ({len(boundary_zones)})")
+            for i in range(len(boundary_zones), len(boundary_cell_blocks)):
+                block = boundary_cell_blocks[i]
+                # Assign to last zone as fallback
+                if boundary_zones:
+                    zone = boundary_zones[-1]
+                    zone.add_cells(block['data'], block['type'])
+                    logger.warning(f"Assigned overflow block {block['index']} to zone '{zone.name}'")
     
     def _create_artificial_mesh(self) -> FluentMesh:
         """Create an artificial mesh for testing purposes when mesh reading fails."""

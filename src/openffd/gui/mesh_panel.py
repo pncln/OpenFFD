@@ -9,9 +9,9 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
-    QFileDialog, QComboBox, QGroupBox, QCheckBox, QLineEdit, QSpinBox,
-    QScrollArea, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
+    QPushButton, QLabel, QLineEdit, QComboBox, QFileDialog,
+    QMessageBox, QListWidget, QTextEdit, QCheckBox, QScrollArea
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 
@@ -91,6 +91,8 @@ class MeshPanel(QWidget):
         mesh_group.setLayout(mesh_layout)
         layout.addWidget(mesh_group)
         
+
+        
         # Zone selection section
         self.zone_group = QGroupBox("Zone Selection")
         zone_layout = QVBoxLayout()
@@ -127,6 +129,37 @@ class MeshPanel(QWidget):
         
         self.zone_group.setLayout(zone_layout)
         layout.addWidget(self.zone_group)
+        
+        # Boundary zone visibility controls
+        self.boundary_group = QGroupBox("Boundary Zone Visibility")
+        self.boundary_layout = QVBoxLayout()
+        self.boundary_group.setLayout(self.boundary_layout)
+        self.boundary_group.setVisible(False)  # Hidden until mesh is loaded
+        
+        self.boundary_checkboxes = {}  # Store zone checkboxes
+        
+        # Show all/hide all buttons
+        boundary_buttons_layout = QHBoxLayout()
+        self.show_all_boundaries_button = QPushButton("Show All")
+        self.show_all_boundaries_button.clicked.connect(self._show_all_boundaries)
+        self.hide_all_boundaries_button = QPushButton("Hide All")
+        self.hide_all_boundaries_button.clicked.connect(self._hide_all_boundaries)
+        
+        boundary_buttons_layout.addWidget(self.show_all_boundaries_button)
+        boundary_buttons_layout.addWidget(self.hide_all_boundaries_button)
+        self.boundary_layout.addLayout(boundary_buttons_layout)
+        
+        # Scroll area for checkboxes
+        self.boundary_scroll = QScrollArea()
+        self.boundary_scroll.setWidgetResizable(True)
+        self.boundary_scroll.setMaximumHeight(200)
+        self.boundary_scroll_widget = QWidget()
+        self.boundary_scroll_layout = QVBoxLayout()
+        self.boundary_scroll_widget.setLayout(self.boundary_scroll_layout)
+        self.boundary_scroll.setWidget(self.boundary_scroll_widget)
+        self.boundary_layout.addWidget(self.boundary_scroll)
+        
+        layout.addWidget(self.boundary_group)
         
         # Mesh stats section
         stats_group = QGroupBox("Mesh Statistics")
@@ -199,21 +232,23 @@ class MeshPanel(QWidget):
             else:
                 # Generic mesh reader for other formats
                 self._load_generic_mesh()
-            
-            # Update UI with mesh information
+                
+            # Update UI
             self._update_mesh_statistics()
             self._update_zone_list()
+            self.zone_group.setVisible(True)
             
-            # Enable zone-related buttons
-            self.list_zones_button.setEnabled(True)
+            # Setup boundary zone visibility controls
+            self._setup_boundary_controls()
             
-            # Emit mesh loaded signal
+            # Emit signal with mesh data and points
             self.mesh_loaded.emit(self.mesh_data, self.mesh_points)
             
             logger.info(f"Mesh loaded: {self.mesh_file_path}")
         except Exception as e:
             logger.error(f"Error loading mesh: {str(e)}")
             show_error_dialog("Error Loading Mesh", str(e))
+            
     
     def _load_fluent_mesh(self, use_binary=True):
         """Load a Fluent mesh file.
@@ -282,7 +317,33 @@ class MeshPanel(QWidget):
                 self.available_zones = list(self.mesh_data.cell_data.keys())
             
             if self.available_zones:
-                self.zone_combo.addItems(self.available_zones)
+                # Add zones with type indicators
+                zone_display_items = []
+                for zone_name in self.available_zones:
+                    zone_type = "unknown"
+                    zone_icon = ""
+                    
+                    if hasattr(self.mesh_data, 'zones') and zone_name in self.mesh_data.zones:
+                        zone_info = self.mesh_data.zones[zone_name]
+                        zone_type = zone_info.get('type', 'unknown')
+                        zone_obj = zone_info.get('object')
+                        
+                        # Determine if it's a volume or boundary zone
+                        if zone_obj and hasattr(zone_obj, 'zone_type_enum'):
+                            is_volume = zone_obj.zone_type_enum.name == 'VOLUME'
+                        else:
+                            is_volume = zone_type in ['interior', 'fluid', 'solid']
+                        
+                        if is_volume:
+                            zone_icon = "🔵"  # Blue circle for volume zones
+                        else:
+                            zone_icon = "🟢"  # Green circle for boundary zones
+                    
+                    # Create display text with icon and type
+                    display_text = f"{zone_icon} {zone_name} ({zone_type})"
+                    zone_display_items.append(display_text)
+                
+                self.zone_combo.addItems(zone_display_items)
                 self.zone_combo.setEnabled(True)
                 self.extract_zone_button.setEnabled(True)
                 self.save_boundary_button.setEnabled(True)
@@ -333,34 +394,73 @@ class MeshPanel(QWidget):
         
         try:
             # Import extraction functionality here to avoid circular imports
-            from openffd.mesh.general import extract_patch_points
+            from openffd.mesh.general import extract_zone_mesh
             
-            # Extract points for the selected zone
-            zone_points = extract_patch_points(self.mesh_data, zone_name)
+            # Extract zone mesh with proper face connectivity
+            zone_mesh_data = extract_zone_mesh(self.mesh_data, zone_name)
             
-            if zone_points is not None and len(zone_points) > 0:
+            if zone_mesh_data is not None:
+                zone_points = zone_mesh_data['points']
+                zone_faces = zone_mesh_data['faces']
+                zone_type = zone_mesh_data['zone_type']
+                is_point_cloud = zone_mesh_data['is_point_cloud']
+                
                 # Update mesh points to use only the selected zone
                 self.mesh_points = zone_points
                 
                 # Update statistics
                 self._update_mesh_statistics()
                 
-                # Notify about the change
-                self.mesh_loaded.emit(self.mesh_data, self.mesh_points)
+                # Notify about the change with zone mesh data for proper surface rendering
+                # CRITICAL FIX: Use zone_points, not self.mesh_points!
+                self.mesh_loaded.emit(zone_mesh_data, zone_points)
+                
+                # Provide informative success message
+                face_info = f", {len(zone_faces)} faces" if zone_faces else " (point cloud)"
+                surface_info = "proper surface mesh" if not is_point_cloud else "point cloud (no face connectivity)"
                 
                 QMessageBox.information(
                     self,
                     "Zone Extraction",
-                    f"Successfully extracted zone '{zone_name}' with {len(zone_points)} points."
+                    f"Successfully extracted zone '{zone_name}' with {len(zone_points):,} points{face_info}.\n\n"
+                    f"Zone type: {zone_type}\n"
+                    f"Surface data: {surface_info}\n\n"
+                    f"This boundary zone is ready for FFD generation."
                 )
                 
-                logger.info(f"Extracted zone '{zone_name}' with {len(zone_points)} points")
+                logger.info(f"Extracted zone '{zone_name}' with {len(zone_points)} points and {len(zone_faces)} faces")
             else:
-                QMessageBox.warning(
-                    self,
-                    "Zone Extraction",
-                    f"No points found in zone '{zone_name}'."
-                )
+                # Check if it's a volume zone
+                zone_type = "unknown"
+                is_volume_zone = False
+                if hasattr(self.mesh_data, 'zones') and zone_name in self.mesh_data.zones:
+                    zone_info = self.mesh_data.zones[zone_name]
+                    zone_type = zone_info.get('type', 'unknown')
+                    zone_obj = zone_info.get('object')
+                    if zone_obj and hasattr(zone_obj, 'zone_type_enum'):
+                        is_volume_zone = zone_obj.zone_type_enum.name == 'VOLUME'
+                    else:
+                        is_volume_zone = zone_type in ['interior', 'fluid', 'solid']
+                
+                # Provide different messages for volume vs boundary zones
+                if is_volume_zone:
+                    QMessageBox.information(
+                        self,
+                        "Volume Zone Selected",
+                        f"Zone '{zone_name}' is a volume zone ({zone_type}).\n\n"
+                        f"Volume zones define 3D fluid domains and don't have extractable surface points.\n\n"
+                        f"For FFD generation, please select a boundary zone instead:\n"
+                        f"• Wall zones (rocket, launchpad, deflector)\n"
+                        f"• Inlet/outlet zones\n"
+                        f"• Symmetry zones"
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Zone Extraction",
+                        f"No mesh data found in zone '{zone_name}' ({zone_type}).\n\n"
+                        f"This boundary zone may be empty or have connectivity issues."
+                    )
         except Exception as e:
             logger.error(f"Error extracting zone: {str(e)}")
             show_error_dialog("Zone Extraction Error", str(e))
@@ -407,7 +507,69 @@ class MeshPanel(QWidget):
             logger.info(f"Saved boundary '{zone_name}' to {file_path}")
         except Exception as e:
             logger.error(f"Error saving boundary: {str(e)}")
-            show_error_dialog("Save Boundary Error", str(e))
+    
+    def _setup_boundary_controls(self):
+        """Set up boundary zone visibility controls."""
+        if not self.mesh_data or not hasattr(self.mesh_data, 'zones'):
+            return
+        
+        # Clear existing checkboxes
+        for checkbox in self.boundary_checkboxes.values():
+            checkbox.deleteLater()
+        self.boundary_checkboxes.clear()
+        
+        # Add checkboxes for boundary zones
+        boundary_zones = []
+        for zone_name, zone_info in self.mesh_data.zones.items():
+            zone_type = zone_info.get('type', 'unknown')
+            zone_obj = zone_info.get('object')
+            
+            # Skip volume zones
+            if zone_obj and hasattr(zone_obj, 'zone_type_enum'):
+                is_volume = zone_obj.zone_type_enum.name == 'VOLUME'
+            else:
+                is_volume = zone_type in ['interior', 'fluid', 'solid']
+            
+            if not is_volume:
+                boundary_zones.append((zone_name, zone_type))
+        
+        # Create checkboxes for boundary zones
+        for zone_name, zone_type in boundary_zones:
+            checkbox = QCheckBox(f"{zone_name} ({zone_type})")
+            checkbox.setChecked(True)  # Initially visible
+            checkbox.stateChanged.connect(lambda state, name=zone_name: self._on_boundary_visibility_changed(name, state == Qt.CheckState.Checked))
+            
+            self.boundary_scroll_layout.addWidget(checkbox)
+            self.boundary_checkboxes[zone_name] = checkbox
+        
+        # Show the boundary group if we have boundary zones
+        if boundary_zones:
+            self.boundary_group.setVisible(True)
+            logger.info(f"Created visibility controls for {len(boundary_zones)} boundary zones")
+        else:
+            self.boundary_group.setVisible(False)
+    
+    def _show_all_boundaries(self):
+        """Show all boundary zones."""
+        for checkbox in self.boundary_checkboxes.values():
+            checkbox.setChecked(True)
+    
+    def _hide_all_boundaries(self):
+        """Hide all boundary zones."""
+        for checkbox in self.boundary_checkboxes.values():
+            checkbox.setChecked(False)
+    
+    def _on_boundary_visibility_changed(self, zone_name: str, visible: bool):
+        """Handle boundary zone visibility change.
+        
+        Args:
+            zone_name: Name of the zone
+            visible: Whether the zone should be visible
+        """
+        # Emit signal to update visualization
+        logger.info(f"Boundary zone '{zone_name}' visibility changed to {visible}")
+        # Note: This would connect to visualization widget to update rendering
+        # For now, we'll just log the change
     
     def load_mesh(self, file_path):
         """Public method to load a mesh from a file path.

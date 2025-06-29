@@ -379,6 +379,94 @@ def read_general_mesh(filename: str) -> Any:
     return mesh
 
 
+def extract_zone_mesh(mesh_data: Any, zone_name: str) -> Optional[Dict[str, Any]]:
+    """Extract zone mesh with points and face connectivity for surface rendering.
+    
+    Args:
+        mesh_data: Mesh object (either FluentMeshReader or FluentMesh)
+        zone_name: Name of zone to extract
+        
+    Returns:
+        Dict containing 'points', 'faces', and 'zone_type' for surface rendering
+        None if zone is not found or has no surface data
+    """
+    # Import FluentMeshReader and FluentMesh here to avoid circular imports
+    from openffd.mesh.fluent_reader import FluentMeshReader, FluentMesh
+    
+    # Handle Fluent mesh objects
+    if isinstance(mesh_data, (FluentMeshReader, FluentMesh)):
+        try:
+            # Get zone object
+            zone = mesh_data.get_zone_by_name(zone_name)
+            if zone is None:
+                logger.warning(f"Zone '{zone_name}' not found in mesh")
+                return None
+            
+            # Check if it's a volume zone (no surface to extract)
+            if hasattr(zone, 'zone_type_enum') and zone.zone_type_enum.name == 'VOLUME':
+                logger.info(f"Zone '{zone_name}' is a volume zone - no surface to extract")
+                return None
+                
+            # Get zone points
+            zone_points = mesh_data.get_zone_points(zone_name)
+            if zone_points is None or len(zone_points) == 0:
+                logger.warning(f"Zone '{zone_name}' has no points")
+                return None
+            
+            # Get zone faces for surface connectivity
+            zone_faces = []
+            if hasattr(zone, 'faces') and zone.faces:
+                # Create a mapping from original point indices to zone point indices
+                point_indices = zone.get_point_indices()
+                point_index_map = {orig_idx: new_idx for new_idx, orig_idx in enumerate(sorted(point_indices))}
+                
+                # Extract faces with remapped indices
+                for face in zone.faces:
+                    if hasattr(face, 'node_indices') and len(face.node_indices) >= 3:
+                        # Remap face node indices to zone point indices
+                        face_nodes = [point_index_map.get(node_idx) for node_idx in face.node_indices 
+                                    if node_idx in point_index_map]
+                        if len(face_nodes) >= 3:
+                            zone_faces.append(face_nodes)
+                            
+            # If no faces found, try to create a basic point cloud structure
+            if not zone_faces:
+                logger.warning(f"Zone '{zone_name}' has no face connectivity - creating point cloud")
+                # For point cloud, we'll return points only
+                return {
+                    'points': zone_points,
+                    'faces': [],
+                    'zone_type': getattr(zone, 'zone_type', 'unknown'),
+                    'is_point_cloud': True
+                }
+            
+            return {
+                'points': zone_points,
+                'faces': zone_faces,
+                'zone_type': getattr(zone, 'zone_type', 'unknown'),
+                'is_point_cloud': False
+            }
+            
+        except Exception as e:
+            logger.error(f"Error extracting zone '{zone_name}': {e}")
+            return None
+    
+    # For non-Fluent meshes, fall back to point-only extraction
+    try:
+        zone_points = extract_patch_points(mesh_data, zone_name)
+        if zone_points is not None and len(zone_points) > 0:
+            return {
+                'points': zone_points,
+                'faces': [],
+                'zone_type': 'unknown',
+                'is_point_cloud': True
+            }
+    except Exception as e:
+        logger.error(f"Error extracting zone points for '{zone_name}': {e}")
+    
+    return None
+
+
 def extract_patch_points(mesh_data: Any, patch_name: str) -> np.ndarray:
     """Extract all unique point coordinates belonging to the given cell set/patch.
     
@@ -394,11 +482,11 @@ def extract_patch_points(mesh_data: Any, patch_name: str) -> np.ndarray:
     Raises:
         ValueError: If the patch is not found or contains no nodes
     """
-    # Import FluentMeshReader here to avoid circular imports
-    from openffd.mesh.fluent_reader import FluentMeshReader
+    # Import FluentMeshReader and FluentMesh here to avoid circular imports
+    from openffd.mesh.fluent_reader import FluentMeshReader, FluentMesh
     
-    # Handle Fluent mesh
-    if isinstance(mesh_data, FluentMeshReader):
+    # Handle Fluent mesh objects
+    if isinstance(mesh_data, (FluentMeshReader, FluentMesh)):
         return mesh_data.get_zone_points(patch_name)
         
     # Handle meshio mesh
