@@ -44,6 +44,7 @@ class FFDPanel(QWidget):
         self.mesh_points = None
         self.hierarchical_ffd = None
         self.ffd_mode = "standard"  # "standard" or "hierarchical"
+        self.ffd_shape_mode = "box"  # "box", "convex", or "surface"
         
         self._setup_ui()
     
@@ -69,6 +70,33 @@ class FFDPanel(QWidget):
         mode_layout.addWidget(self.standard_mode_radio)
         mode_layout.addWidget(self.hierarchical_mode_radio)
         main_layout.addWidget(mode_group)
+        
+        # FFD Generation Shape Mode selection
+        shape_group = QGroupBox("FFD Generation Shape")
+        shape_layout = QHBoxLayout(shape_group)
+        
+        # Radio buttons for FFD generation shape
+        self.box_shape_radio = QRadioButton("Box (Rectangular)")
+        self.box_shape_radio.setChecked(True)
+        self.box_shape_radio.setToolTip("Traditional rectangular FFD box that fits the domain")
+        
+        self.convex_shape_radio = QRadioButton("Convex Hull")
+        self.convex_shape_radio.setToolTip("FFD that tightly encloses the domain with no empty space")
+        
+        self.surface_shape_radio = QRadioButton("Surface-Fitted")
+        self.surface_shape_radio.setToolTip("FFD that follows the geometry surface contours (e.g., wing-shaped)")
+        
+        # Group radio buttons for shape mode
+        self.shape_group = QButtonGroup(self)
+        self.shape_group.addButton(self.box_shape_radio, 1)
+        self.shape_group.addButton(self.convex_shape_radio, 2)
+        self.shape_group.addButton(self.surface_shape_radio, 3)
+        self.shape_group.buttonClicked.connect(self._on_shape_mode_changed)
+        
+        shape_layout.addWidget(self.box_shape_radio)
+        shape_layout.addWidget(self.convex_shape_radio)
+        shape_layout.addWidget(self.surface_shape_radio)
+        main_layout.addWidget(shape_group)
         
         # Create a scroll area for the content
         scroll_area = QScrollArea()
@@ -313,6 +341,18 @@ class FFDPanel(QWidget):
         self._update_mode_visibility()
         self.ffd_parameters_changed.emit()
     
+    def _on_shape_mode_changed(self, button):
+        """Handle FFD shape mode change."""
+        if button == self.box_shape_radio:
+            self.ffd_shape_mode = "box"
+        elif button == self.convex_shape_radio:
+            self.ffd_shape_mode = "convex"
+        else:  # surface_shape_radio
+            self.ffd_shape_mode = "surface"
+        
+        logger.info(f"FFD shape mode changed to: {self.ffd_shape_mode}")
+        self.ffd_parameters_changed.emit()
+    
     def set_mesh_points(self, mesh_points: np.ndarray):
         """Set the mesh points for FFD generation.
         
@@ -328,6 +368,14 @@ class FFDPanel(QWidget):
             String indicating the FFD mode ("standard" or "hierarchical")
         """
         return self.ffd_mode
+    
+    def get_ffd_shape_mode(self):
+        """Get the current FFD shape generation mode.
+        
+        Returns:
+            String indicating the FFD shape mode ("box", "convex", or "surface")
+        """
+        return self.ffd_shape_mode
     
     def get_hierarchical_custom_bounds(self):
         """Get custom bounds for hierarchical FFD if specified.

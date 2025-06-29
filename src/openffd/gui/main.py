@@ -370,6 +370,7 @@ class OpenFFDMainWindow(QMainWindow):
         control_dim = self.ffd_panel.get_control_dimensions()
         margin = self.ffd_panel.get_margin()
         custom_dims = self.ffd_panel.get_custom_bounds()
+        shape_mode = self.ffd_panel.get_ffd_shape_mode()
         
         # Generate FFD control box
         self.ffd_control_points, self.bounding_box = create_ffd_box(
@@ -377,6 +378,7 @@ class OpenFFDMainWindow(QMainWindow):
             control_dim=control_dim,
             margin=margin,
             custom_dims=custom_dims,
+            generation_mode=shape_mode,
             parallel_config=self.parallel_config
         )
         

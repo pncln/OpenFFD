@@ -29,6 +29,8 @@ def create_ffd_box(
     margin: float = 0.0,
     custom_dims: Optional[List[Optional[Tuple[Optional[float], Optional[float]]]]] = None,
     parallel_config: Optional[ParallelConfig] = None,
+    generation_mode: str = "box",
+    zone_points: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """Create an FFD control box based on mesh points.
     
@@ -39,6 +41,10 @@ def create_ffd_box(
         custom_dims: Optional list of tuples [(min_x, max_x), (min_y, max_y), (min_z, max_z)]
                      specifying custom dimensions for the FFD box. Any None value
                      will be calculated from mesh_points.
+        parallel_config: Optional parallel processing configuration
+        generation_mode: FFD generation mode - "box" (rectangular), "convex" (convex hull),
+                        or "surface" (surface-fitted)
+        zone_points: Optional specific zone points for surface-fitted mode
         
     Returns:
         Tuple containing:
@@ -49,6 +55,7 @@ def create_ffd_box(
         ValueError: If mesh_points is empty or has wrong shape
         ValueError: If control_dim contains non-positive values
         ValueError: If margin is negative
+        ValueError: If generation_mode is not supported
     """
     # Validate inputs
     if not isinstance(mesh_points, np.ndarray):
@@ -68,6 +75,31 @@ def create_ffd_box(
         
     if margin < 0:
         raise ValueError(f"margin must be non-negative, got {margin}")
+    
+    # Validate generation mode
+    valid_modes = ["box", "convex", "surface"]
+    if generation_mode not in valid_modes:
+        raise ValueError(f"generation_mode must be one of {valid_modes}, got '{generation_mode}'")
+    
+    # Dispatch to appropriate generation method
+    if generation_mode == "box":
+        return _create_box_ffd(mesh_points, control_dim, margin, custom_dims, parallel_config)
+    elif generation_mode == "convex":
+        return _create_convex_ffd(mesh_points, control_dim, margin, parallel_config)
+    elif generation_mode == "surface":
+        points_to_use = zone_points if zone_points is not None else mesh_points
+        return _create_surface_ffd(points_to_use, control_dim, margin, parallel_config)
+
+
+def _create_box_ffd(
+    mesh_points: np.ndarray,
+    control_dim: tuple,
+    margin: float,
+    custom_dims: Optional[List[Optional[Tuple[Optional[float], Optional[float]]]]] = None,
+    parallel_config: Optional[ParallelConfig] = None,
+) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    """Create a box-shaped FFD (original implementation)."""
+    logger.info(f"Creating box-shaped FFD with dimensions {control_dim}")
     
     # Calculate bounding box with margin using parallel processing if available
     try:
@@ -161,6 +193,154 @@ def create_ffd_box(
     
     logger.info(f"Created FFD control box with {control_points.shape[0]} control points")
     return control_points, (min_coords, max_coords)
+
+
+def _create_convex_ffd(
+    mesh_points: np.ndarray,
+    control_dim: tuple,
+    margin: float,
+    parallel_config: Optional[ParallelConfig] = None,
+) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    """Create a convex hull-based FFD that tightly encloses the domain."""
+    logger.info(f"Creating convex hull FFD with dimensions {control_dim}")
+    
+    try:
+        from scipy.spatial import ConvexHull
+    except ImportError:
+        logger.warning("scipy not available, falling back to box FFD")
+        return _create_box_ffd(mesh_points, control_dim, margin, None, parallel_config)
+    
+    if parallel_config is None:
+        parallel_config = ParallelConfig()
+    
+    nx, ny, nz = control_dim
+    
+    try:
+        # Compute convex hull of the mesh points
+        hull = ConvexHull(mesh_points)
+        hull_points = mesh_points[hull.vertices]
+        
+        logger.info(f"Convex hull computed with {len(hull_points)} vertices")
+        
+        # Get bounding box of convex hull
+        min_coords = np.min(hull_points, axis=0) - margin
+        max_coords = np.max(hull_points, axis=0) + margin
+        
+        # Create control points that respect the convex hull shape
+        control_points = np.zeros((nx * ny * nz, 3))
+        
+        # Create base grid
+        xs = np.linspace(min_coords[0], max_coords[0], nx)
+        ys = np.linspace(min_coords[1], max_coords[1], ny)
+        zs = np.linspace(min_coords[2], max_coords[2], nz)
+        
+        idx = 0
+        for i in range(nx):
+            for j in range(ny):
+                for k in range(nz):
+                    base_point = np.array([xs[i], ys[j], zs[k]])
+                    
+                    # Project point onto convex hull boundary if it's outside
+                    # For simplicity, we'll use a weighted approach based on distance to hull
+                    distances = np.linalg.norm(hull_points - base_point, axis=1)
+                    closest_idx = np.argmin(distances)
+                    closest_hull_point = hull_points[closest_idx]
+                    
+                    # Blend between base grid point and closest hull point
+                    # Points closer to boundary get more influence from hull
+                    min_dist = np.min(distances)
+                    max_dist = np.max(np.linalg.norm(hull_points - np.mean(hull_points, axis=0), axis=1))
+                    
+                    if max_dist > 0:
+                        blend_factor = min(1.0, min_dist / (max_dist * 0.5))
+                        control_points[idx] = blend_factor * base_point + (1 - blend_factor) * closest_hull_point
+                    else:
+                        control_points[idx] = base_point
+                    
+                    idx += 1
+        
+        logger.info(f"Created convex hull FFD with {control_points.shape[0]} control points")
+        return control_points, (min_coords, max_coords)
+        
+    except Exception as e:
+        logger.error(f"Error creating convex hull FFD: {e}")
+        logger.warning("Falling back to box FFD")
+        return _create_box_ffd(mesh_points, control_dim, margin, None, parallel_config)
+
+
+def _create_surface_ffd(
+    mesh_points: np.ndarray,
+    control_dim: tuple,
+    margin: float,
+    parallel_config: Optional[ParallelConfig] = None,
+) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    """Create a surface-fitted FFD that follows the geometry contours."""
+    logger.info(f"Creating surface-fitted FFD with dimensions {control_dim}")
+    
+    if parallel_config is None:
+        parallel_config = ParallelConfig()
+    
+    nx, ny, nz = control_dim
+    
+    try:
+        # Compute bounding box
+        min_coords = np.min(mesh_points, axis=0) - margin
+        max_coords = np.max(mesh_points, axis=0) + margin
+        
+        # Create base grid
+        xs = np.linspace(min_coords[0], max_coords[0], nx)
+        ys = np.linspace(min_coords[1], max_coords[1], ny)
+        zs = np.linspace(min_coords[2], max_coords[2], nz)
+        
+        control_points = np.zeros((nx * ny * nz, 3))
+        
+        # For surface fitting, we'll use a distance-weighted approach
+        # Each control point is influenced by nearby surface points
+        idx = 0
+        for i in range(nx):
+            for j in range(ny):
+                for k in range(nz):
+                    base_point = np.array([xs[i], ys[j], zs[k]])
+                    
+                    # Find nearby surface points
+                    distances = np.linalg.norm(mesh_points - base_point, axis=1)
+                    
+                    # Use inverse distance weighting for surface fitting
+                    # Points closer to the surface get more influence
+                    min_distance = np.min(distances)
+                    influence_radius = (max_coords - min_coords).max() * 0.2  # 20% of domain size
+                    
+                    if min_distance < influence_radius:
+                        # Weight by inverse distance
+                        weights = 1.0 / (distances + 1e-10)  # Avoid division by zero
+                        nearby_mask = distances < influence_radius
+                        
+                        if np.any(nearby_mask):
+                            nearby_points = mesh_points[nearby_mask]
+                            nearby_weights = weights[nearby_mask]
+                            
+                            # Weighted average of nearby surface points
+                            weighted_surface_point = np.average(nearby_points, axis=0, weights=nearby_weights)
+                            
+                            # Blend between base grid point and surface-influenced point
+                            surface_influence = min(1.0, influence_radius / (min_distance + 1e-10))
+                            surface_influence = min(surface_influence, 0.8)  # Limit maximum influence
+                            
+                            control_points[idx] = (1 - surface_influence) * base_point + surface_influence * weighted_surface_point
+                        else:
+                            control_points[idx] = base_point
+                    else:
+                        control_points[idx] = base_point
+                    
+                    idx += 1
+        
+        logger.info(f"Created surface-fitted FFD with {control_points.shape[0]} control points")
+        return control_points, (min_coords, max_coords)
+        
+    except Exception as e:
+        logger.error(f"Error creating surface-fitted FFD: {e}")
+        logger.warning("Falling back to box FFD")
+        return _create_box_ffd(mesh_points, control_dim, margin, None, parallel_config)
 
 
 def extract_patch_points(mesh_data: Any, patch_name: str) -> np.ndarray:
