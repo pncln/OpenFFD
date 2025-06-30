@@ -166,4 +166,5 @@ cython_debug/
 usage.txt
 *.3df
 # *.tex
-reportweb/
+report
+web
