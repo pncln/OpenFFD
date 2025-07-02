@@ -255,6 +255,7 @@ class OpenFFDMainWindow(QMainWindow):
         """Connect signals and slots."""
         # Mesh panel signals
         self.mesh_panel.mesh_loaded.connect(self.on_mesh_loaded)
+        self.mesh_panel.boundary_visibility_changed.connect(self.visualization.set_boundary_zone_visibility)
             
         # FFD panel signals
         self.ffd_panel.ffd_parameters_changed.connect(self.on_ffd_parameters_changed)

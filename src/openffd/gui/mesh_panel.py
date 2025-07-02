@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QComboBox, QFileDialog,
     QMessageBox, QListWidget, QTextEdit, QCheckBox, QScrollArea
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QThread
 
 from openffd.mesh.general import read_general_mesh, is_fluent_mesh
 from openffd.mesh.fluent_reader import FluentMeshReader
@@ -29,6 +29,9 @@ class MeshPanel(QWidget):
     # Signal emitted when a mesh is loaded
     mesh_loaded = pyqtSignal(object, object)
     
+    # Signal emitted when boundary zone visibility changes
+    boundary_visibility_changed = pyqtSignal(str, bool)
+    
     def __init__(self, parent=None):
         """Initialize the mesh panel.
         
@@ -40,6 +43,7 @@ class MeshPanel(QWidget):
         self.mesh_data = None
         self.mesh_points = None
         self.available_zones = []
+        self.extraction_thread = None  # For background zone extraction
         
         self._setup_ui()
     
@@ -394,6 +398,30 @@ class MeshPanel(QWidget):
         
         zone_name = self.available_zones[zone_idx]
         
+        # Check zone size first to determine if we need background processing
+        try:
+            zone_info = self.mesh_data.zones.get(zone_name, {})
+            zone_obj = zone_info.get('object')
+            
+            # Estimate zone size for performance decision
+            needs_background = False
+            if zone_obj and hasattr(zone_obj, 'faces') and hasattr(zone_obj.faces, '__len__'):
+                face_count = len(zone_obj.faces)
+                if face_count > 10000:  # Large zone threshold
+                    needs_background = True
+                    logger.info(f"Zone '{zone_name}' has {face_count:,} faces - using background processing")
+            
+            if needs_background:
+                self._extract_zone_background(zone_name)
+            else:
+                self._extract_zone_direct(zone_name)
+                
+        except Exception as e:
+            logger.error(f"Error during zone extraction: {str(e)}")
+            show_error_dialog("Zone Extraction Error", str(e))
+    
+    def _extract_zone_direct(self, zone_name: str):
+        """Extract zone directly on main thread (for small zones)."""
         try:
             # Import extraction functionality here to avoid circular imports
             from openffd.mesh.general import extract_zone_mesh
@@ -402,70 +430,113 @@ class MeshPanel(QWidget):
             zone_mesh_data = extract_zone_mesh(self.mesh_data, zone_name)
             
             if zone_mesh_data is not None:
-                zone_points = zone_mesh_data['points']
-                zone_faces = zone_mesh_data['faces']
-                zone_type = zone_mesh_data['zone_type']
-                is_point_cloud = zone_mesh_data['is_point_cloud']
-                
-                # Update mesh points to use only the selected zone
-                self.mesh_points = zone_points
-                
-                # Update statistics
-                self._update_mesh_statistics()
-                
-                # Notify about the change with zone mesh data for proper surface rendering
-                # CRITICAL FIX: Use zone_points, not self.mesh_points!
-                self.mesh_loaded.emit(zone_mesh_data, zone_points)
-                
-                # Provide informative success message
-                face_info = f", {len(zone_faces)} faces" if zone_faces else " (point cloud)"
-                surface_info = "proper surface mesh" if not is_point_cloud else "point cloud (no face connectivity)"
-                
-                QMessageBox.information(
-                    self,
-                    "Zone Extraction",
-                    f"Successfully extracted zone '{zone_name}' with {len(zone_points):,} points{face_info}.\n\n"
-                    f"Zone type: {zone_type}\n"
-                    f"Surface data: {surface_info}\n\n"
-                    f"This boundary zone is ready for FFD generation."
-                )
-                
-                logger.info(f"Extracted zone '{zone_name}' with {len(zone_points)} points and {len(zone_faces)} faces")
+                self._process_extracted_zone(zone_name, zone_mesh_data)
             else:
-                # Check if it's a volume zone
-                zone_type = "unknown"
-                is_volume_zone = False
-                if hasattr(self.mesh_data, 'zones') and zone_name in self.mesh_data.zones:
-                    zone_info = self.mesh_data.zones[zone_name]
-                    zone_type = zone_info.get('type', 'unknown')
-                    zone_obj = zone_info.get('object')
-                    if zone_obj and hasattr(zone_obj, 'zone_type_enum'):
-                        is_volume_zone = zone_obj.zone_type_enum.name == 'VOLUME'
-                    else:
-                        is_volume_zone = zone_type in ['interior', 'fluid', 'solid']
+                self._handle_empty_zone(zone_name)
                 
-                # Provide different messages for volume vs boundary zones
-                if is_volume_zone:
-                    QMessageBox.information(
-                        self,
-                        "Volume Zone Selected",
-                        f"Zone '{zone_name}' is a volume zone ({zone_type}).\n\n"
-                        f"Volume zones define 3D fluid domains and don't have extractable surface points.\n\n"
-                        f"For FFD generation, please select a boundary zone instead:\n"
-                        f"• Wall zones (rocket, launchpad, deflector)\n"
-                        f"• Inlet/outlet zones\n"
-                        f"• Symmetry zones"
-                    )
-                else:
-                    QMessageBox.warning(
-                        self,
-                        "Zone Extraction",
-                        f"No mesh data found in zone '{zone_name}' ({zone_type}).\n\n"
-                        f"This boundary zone may be empty or have connectivity issues."
-                    )
         except Exception as e:
             logger.error(f"Error extracting zone: {str(e)}")
             show_error_dialog("Zone Extraction Error", str(e))
+    
+    def _extract_zone_background(self, zone_name: str):
+        """Extract zone in background thread (for large zones)."""
+        # Disable extraction button during processing
+        self.extract_zone_button.setEnabled(False)
+        self.extract_zone_button.setText("Extracting...")
+        
+        # Create and start background thread
+        self.extraction_thread = ZoneExtractionThread(self.mesh_data, zone_name)
+        self.extraction_thread.extraction_completed.connect(self._on_background_extraction_completed)
+        self.extraction_thread.extraction_failed.connect(self._on_background_extraction_failed)
+        self.extraction_thread.start()
+        
+        logger.info(f"Started background extraction for zone '{zone_name}'")
+    
+    def _on_background_extraction_completed(self, zone_name: str, zone_mesh_data: dict):
+        """Handle completed background zone extraction."""
+        try:
+            self._process_extracted_zone(zone_name, zone_mesh_data)
+        except Exception as e:
+            logger.error(f"Error processing background extraction result: {str(e)}")
+            show_error_dialog("Zone Processing Error", str(e))
+        finally:
+            # Re-enable extraction button
+            self.extract_zone_button.setEnabled(True)
+            self.extract_zone_button.setText("Extract Zone")
+    
+    def _on_background_extraction_failed(self, zone_name: str, error_message: str):
+        """Handle failed background zone extraction."""
+        logger.error(f"Background extraction failed for zone '{zone_name}': {error_message}")
+        show_error_dialog("Zone Extraction Failed", f"Failed to extract zone '{zone_name}': {error_message}")
+        
+        # Re-enable extraction button
+        self.extract_zone_button.setEnabled(True)
+        self.extract_zone_button.setText("Extract Zone")
+    
+    def _process_extracted_zone(self, zone_name: str, zone_mesh_data: dict):
+        """Process successfully extracted zone data."""
+        zone_points = zone_mesh_data['points']
+        zone_faces = zone_mesh_data['faces']
+        zone_type = zone_mesh_data['zone_type']
+        is_point_cloud = zone_mesh_data['is_point_cloud']
+        
+        # Update mesh points to use only the selected zone
+        self.mesh_points = zone_points
+        
+        # Update statistics
+        self._update_mesh_statistics()
+        
+        # Notify about the change with zone mesh data for proper surface rendering
+        self.mesh_loaded.emit(zone_mesh_data, zone_points)
+        
+        # Provide informative success message
+        face_info = f", {len(zone_faces)} faces" if zone_faces else " (point cloud)"
+        surface_info = "proper surface mesh" if not is_point_cloud else "point cloud (no face connectivity)"
+        
+        QMessageBox.information(
+            self,
+            "Zone Extraction Complete",
+            f"Successfully extracted zone '{zone_name}' with {len(zone_points):,} points{face_info}.\n\n"
+            f"Zone type: {zone_type}\n"
+            f"Surface data: {surface_info}\n\n"
+            f"This boundary zone is ready for FFD generation."
+        )
+        
+        logger.info(f"Extracted zone '{zone_name}' with {len(zone_points)} points and {len(zone_faces)} faces")
+    
+    def _handle_empty_zone(self, zone_name: str):
+        """Handle case where zone extraction returns no data."""
+        # Check if it's a volume zone
+        zone_type = "unknown"
+        is_volume_zone = False
+        if hasattr(self.mesh_data, 'zones') and zone_name in self.mesh_data.zones:
+            zone_info = self.mesh_data.zones[zone_name]
+            zone_type = zone_info.get('type', 'unknown')
+            zone_obj = zone_info.get('object')
+            if zone_obj and hasattr(zone_obj, 'zone_type_enum'):
+                is_volume_zone = zone_obj.zone_type_enum.name == 'VOLUME'
+            else:
+                is_volume_zone = zone_type in ['interior', 'fluid', 'solid']
+        
+        # Provide different messages for volume vs boundary zones
+        if is_volume_zone:
+            QMessageBox.information(
+                self,
+                "Volume Zone Selected",
+                f"Zone '{zone_name}' is a volume zone ({zone_type}).\n\n"
+                f"Volume zones define 3D fluid domains and don't have extractable surface points.\n\n"
+                f"For FFD generation, please select a boundary zone instead:\n"
+                f"• Wall zones (rocket, launchpad, deflector)\n"
+                f"• Inlet/outlet zones\n"
+                f"• Symmetry zones"
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Zone Extraction",
+                f"No mesh data found in zone '{zone_name}' ({zone_type}).\n\n"
+                f"This boundary zone may be empty or have connectivity issues."
+            )
     
     def _save_boundary(self):
         """Save the selected boundary/zone to a file."""
@@ -570,8 +641,7 @@ class MeshPanel(QWidget):
         """
         # Emit signal to update visualization
         logger.info(f"Boundary zone '{zone_name}' visibility changed to {visible}")
-        # Note: This would connect to visualization widget to update rendering
-        # For now, we'll just log the change
+        self.boundary_visibility_changed.emit(zone_name, visible)
     
     def load_mesh(self, file_path):
         """Public method to load a mesh from a file path.
@@ -583,3 +653,34 @@ class MeshPanel(QWidget):
         self.file_label.setText(os.path.basename(file_path))
         self.load_button.setEnabled(True)
         self._load_mesh()
+
+
+class ZoneExtractionThread(QThread):
+    """Background thread for zone extraction."""
+    
+    extraction_completed = pyqtSignal(str, dict)
+    extraction_failed = pyqtSignal(str, str)
+    
+    def __init__(self, mesh_data, zone_name):
+        super().__init__()
+        self.mesh_data = mesh_data
+        self.zone_name = zone_name
+    
+    def run(self):
+        """Run zone extraction in background."""
+        try:
+            from openffd.mesh.general import extract_zone_mesh
+            
+            # Extract zone mesh with progress logging
+            logger.info(f"Background thread: Starting extraction of zone '{self.zone_name}'")
+            zone_mesh_data = extract_zone_mesh(self.mesh_data, self.zone_name)
+            
+            if zone_mesh_data is not None:
+                logger.info(f"Background thread: Extraction completed for zone '{self.zone_name}'")
+                self.extraction_completed.emit(self.zone_name, zone_mesh_data)
+            else:
+                self.extraction_failed.emit(self.zone_name, "No mesh data extracted")
+                
+        except Exception as e:
+            logger.error(f"Background extraction error: {str(e)}")
+            self.extraction_failed.emit(self.zone_name, str(e))

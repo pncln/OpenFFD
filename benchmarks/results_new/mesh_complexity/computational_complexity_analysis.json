@@ -1,0 +1,41 @@
+{
+  "mesh_scaling": {
+    "exponent": 0.4768877968679863,
+    "r_squared": 0.5350024472972632,
+    "p_value": 0.0008477062490949865,
+    "complexity_class": "Linear"
+  },
+  "control_scaling": {
+    "exponent": 0.01733261749716369,
+    "r_squared": 0.6592061762860775,
+    "p_value": 0.007862673069706488,
+    "complexity_class": "Linear"
+  },
+  "geometry_effects": [
+    {
+      "geometry_type": "cube",
+      "mean": 0.038466250011697414,
+      "std": 0.007609286806566655
+    },
+    {
+      "geometry_type": "cylinder",
+      "mean": 0.009839224815368652,
+      "std": 0.0001591570085171711
+    },
+    {
+      "geometry_type": "random",
+      "mean": 0.009709799999836833,
+      "std": 0.00013839222346911372
+    },
+    {
+      "geometry_type": "sphere",
+      "mean": 0.009901191794779152,
+      "std": 0.00019469618252808437
+    },
+    {
+      "geometry_type": "wing",
+      "mean": 0.009922141802962869,
+      "std": 0.00015098143824794548
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "summary_statistics": {
+    "parallelization": {
+      "total_tests": 840,
+      "numeric_columns": 7,
+      "mean_values": {
+        "mesh_size": 558571.4285714285,
+        "workers": 5.5,
+        "repetition": 2.0,
+        "execution_time": 0.017294089688913893,
+        "num_control_points": 448.0,
+        "points_per_second": 32209440.250437908,
+        "memory_efficiency": 14299486142.840874
+      },
+      "std_values": {
+        "mesh_size": 670269.6215488648,
+        "workers": 3.732727404145542,
+        "repetition": 1.4150561085082316,
+        "execution_time": 0.01982353635260085,
+        "num_control_points": 357.31217508621097,
+        "points_per_second": 18153621.733784284,
+        "memory_efficiency": 15245033861.480097
+      }
+    },
+    "mesh_complexity": {
+      "total_tests": 890,
+      "numeric_columns": 13,
+      "mean_values": {
+        "mesh_size": 1174673.573033708,
+        "aspect_ratio": 1.2415730337078652,
+        "repetition": 2.0,
+        "generation_time": 0.0440507454478464,
+        "ffd_time": 0.03176197241049966,
+        "total_time": 0.07581271785834613,
+        "num_control_points": 823.4494382022472,
+        "total_operations": 934444247.9101124,
+        "operations_per_second": 24459332194.31098,
+        "bbox_volume": 9.557682032445804,
+        "point_density": 1048408.7309335894,
+        "computed_aspect_ratio": 2.331635210272957,
+        "memory_usage_estimate": 7129.243834763431
+      },
+      "std_values": {
+        "mesh_size": 2371188.0271676336,
+        "aspect_ratio": 1.5090882525726101,
+        "repetition": 1.4150087345260989,
+        "generation_time": 0.10740867378785224,
+        "ffd_time": 0.06196018273102655,
+        "total_time": 0.16037820570666073,
+        "num_control_points": 1038.1343048461729,
+        "total_operations": 2662158046.441949,
+        "operations_per_second": 39540893867.20233,
+        "bbox_volume": 14.25478495906866,
+        "point_density": 3929338.4147307584,
+        "computed_aspect_ratio": 1.9723615528317395,
+        "memory_usage_estimate": 20310.65404084739
+      }
+    },
+    "hierarchical_ffd": {
+      "total_tests": 219,
+      "numeric_columns": 13,
+      "mean_values": {
+        "mesh_size": 401369.8630136986,
+        "max_depth": 3.410958904109589,
+        "subdivision_factor": 2.1232876712328768,
+        "repetition": 1.0,
+        "creation_time": 0.4103737172620694,
+        "deformation_time": 7.280648044140672,
+        "total_time": 7.691021761402741,
+        "total_levels": 3.410958904109589,
+        "total_control_points": 1077586.410958904,
+        "theoretical_operations": 440299178082.1918,
+        "memory_estimate_mb": 35.04206241973459,
+        "throughput": 14595074.260746231,
+        "control_efficiency": 1244352.6429941684
+      },
+      "std_values": {
+        "mesh_size": 318897.1034265353,
+        "max_depth": 1.5898382853399708,
+        "subdivision_factor": 0.43720984022387765,
+        "repetition": 0.8183671368293095,
+        "creation_time": 1.0527085692137337,
+        "deformation_time": 15.251186522288423,
+        "total_time": 15.105076913003463,
+        "total_levels": 1.5898382853399708,
+        "total_control_points": 2798335.2990110153,
+        "theoretical_operations": 1459169175377.2222,
+        "memory_estimate_mb": 67.21489900986543,
+        "throughput": 14916663.239617195,
+        "control_efficiency": 1194739.796335426
+      }
+    },
+    "visualization": {
+      "total_tests": 147,
+      "numeric_columns": 21,
+      "mean_values": {
+        "mesh_size": 508775.51020408166,
+        "workers": 4.081081081081081,
+        "repetition": 1.0,
+        "subsample_time": 0.007382094655888081,
+        "feature_time": 0.02902555285716454,
+        "total_time": 0.023169048376277885,
+        "memory_usage_mb": 0.20631377551020408,
+        "subsampled_points": 10000.0,
+        "throughput_points_per_sec": 14666405.080325624,
+        "processing_efficiency": 4470929.696378655,
+        "mesh_prep_time": 2.6960495031542246e-07,
+        "viz_creation_time": 1.2302819717054565e-06,
+        "num_chunks": 1.0,
+        "triangles_rendered": 0.0,
+        "points_rendered": 433333.3333333333,
+        "rendering_throughput": 0.0,
+        "memory_efficiency": 534758.7326340722,
+        "processing_time": 0.009309516536935286,
+        "elements_processed": 203036.0,
+        "throughput_elements_per_sec": 306878753849.77765,
+        "scalability_factor": 3.476837158203125
+      },
+      "std_values": {
+        "mesh_size": 487196.1968146535,
+        "workers": 2.8159775797633277,
+        "repetition": 0.819288030372914,
+        "subsample_time": 0.009915078745188086,
+        "feature_time": 0.02397100100918899,
+        "total_time": 0.026603449693387904,
+        "memory_usage_mb": 0.7678559428749782,
+        "subsampled_points": 0.0,
+        "throughput_points_per_sec": 13439314.617903357,
+        "processing_efficiency": 16816294.90263174,
+        "mesh_prep_time": 1.1504220695093468e-07,
+        "viz_creation_time": 7.211663455720411e-07,
+        "num_chunks": 0.0,
+        "triangles_rendered": 0.0,
+        "points_rendered": 414728.82706655446,
+        "rendering_throughput": 0.0,
+        "memory_efficiency": 2714518.5724641136,
+        "processing_time": 0.016678571577093255,
+        "elements_processed": 199781.80068669174,
+        "throughput_elements_per_sec": 869872946011.9309,
+        "scalability_factor": 3.8243695286305117
+      }
+    }
+  },
+  "performance_trends": {},
+  "scaling_analysis": {
+    "parallelization": {
+      "scaling_exponent": 0.3617071645788921,
+      "r_squared": 0.45000090617459054,
+      "complexity_class": "Linear O(n)"
+    },
+    "mesh_complexity": {
+      "scaling_exponent": 0.46465260687376514,
+      "r_squared": 0.6520969391542252,
+      "complexity_class": "Linear O(n)"
+    },
+    "hierarchical_ffd": {
+      "scaling_exponent": 0.9268917310626673,
+      "r_squared": 0.9448397360733436,
+      "complexity_class": "Linear O(n)"
+    },
+    "visualization": {
+      "scaling_exponent": 0.19948666023537984,
+      "r_squared": 0.33504996228386846,
+      "complexity_class": "Linear O(n)"
+    }
+  },
+  "recommendations": {}
+}
