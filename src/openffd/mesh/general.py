@@ -416,20 +416,53 @@ def extract_zone_mesh(mesh_data: Any, zone_name: str) -> Optional[Dict[str, Any]
             # Get zone faces for surface connectivity
             zone_faces = []
             if hasattr(zone, 'faces') and zone.faces:
+                logger.info(f"Zone '{zone_name}': Found {len(zone.faces)} faces in zone definition")
+                
                 # Create a mapping from original point indices to zone point indices
                 point_indices = zone.get_point_indices()
                 # CRITICAL: Sort point_indices to ensure consistent order (set has no guaranteed order)
                 sorted_point_indices = sorted(point_indices)
                 point_index_map = {orig_idx: new_idx for new_idx, orig_idx in enumerate(sorted_point_indices)}
                 
+                # Debug logging for connectivity issues
+                logger.info(f"Zone '{zone_name}': {len(point_indices)} unique points, index range: {min(point_indices) if point_indices else 'N/A'} to {max(point_indices) if point_indices else 'N/A'}")
+                logger.info(f"Zone '{zone_name}': mapped to local indices 0 to {len(sorted_point_indices)-1}")
+                
+                # Debug: Check a few faces to see their connectivity
+                for i, face in enumerate(zone.faces[:3]):  # Check first 3 faces
+                    logger.info(f"Zone '{zone_name}': Face {i} connectivity: {face.node_indices} (face type: {face.face_type})")
+                
                 # Extract faces with remapped indices
+                faces_processed = 0
+                faces_valid = 0
                 for face in zone.faces:
+                    faces_processed += 1
                     if hasattr(face, 'node_indices') and len(face.node_indices) >= 3:
-                        # Remap face node indices to zone point indices
-                        face_nodes = [point_index_map.get(node_idx) for node_idx in face.node_indices 
-                                    if node_idx in point_index_map]
-                        if len(face_nodes) >= 3:
-                            zone_faces.append(face_nodes)
+                        # Check that ALL face nodes exist in the zone
+                        face_nodes = []
+                        face_valid = True
+                        
+                        for node_idx in face.node_indices:
+                            if node_idx in point_index_map:
+                                face_nodes.append(point_index_map[node_idx])
+                            else:
+                                # Face references a node not in this zone - skip entire face
+                                face_valid = False
+                                break
+                        
+                        # Only add faces where ALL nodes are valid
+                        if face_valid and len(face_nodes) >= 3:
+                            # Debug: Check for index bounds issues
+                            max_valid_index = len(sorted_point_indices) - 1
+                            if any(idx > max_valid_index for idx in face_nodes):
+                                logger.warning(f"Face has index out of bounds: {face_nodes}, max valid: {max_valid_index}")
+                            else:
+                                zone_faces.append(face_nodes)
+                                faces_valid += 1
+                
+                logger.info(f"Zone '{zone_name}': processed {faces_processed} faces, {faces_valid} valid faces with complete connectivity")
+            else:
+                logger.warning(f"Zone '{zone_name}': No faces found in zone definition (hasattr(zone, 'faces'): {hasattr(zone, 'faces')}, zone.faces: {getattr(zone, 'faces', None)})")
                             
             # If no faces found, try to create a basic point cloud structure
             if not zone_faces:
@@ -439,14 +472,36 @@ def extract_zone_mesh(mesh_data: Any, zone_name: str) -> Optional[Dict[str, Any]
                     'points': zone_points,
                     'faces': [],
                     'zone_type': getattr(zone, 'zone_type', 'unknown'),
+                    'zone_name': zone_name,
                     'is_point_cloud': True
                 }
+            
+            # Validate the mesh data before returning
+            if len(zone_points) == 0:
+                logger.error(f"Zone '{zone_name}': No points extracted")
+                return None
+            
+            # Additional validation for face connectivity
+            if zone_faces:
+                max_point_index = len(zone_points) - 1
+                invalid_faces = []
+                for i, face in enumerate(zone_faces):
+                    if any(idx < 0 or idx > max_point_index for idx in face):
+                        invalid_faces.append(i)
+                
+                if invalid_faces:
+                    logger.error(f"Zone '{zone_name}': {len(invalid_faces)} faces have invalid indices")
+                    # Remove invalid faces
+                    zone_faces = [face for i, face in enumerate(zone_faces) if i not in invalid_faces]
+            
+            logger.info(f"Zone '{zone_name}': returning {len(zone_points)} points, {len(zone_faces)} faces")
             
             return {
                 'points': zone_points,
                 'faces': zone_faces,
                 'zone_type': getattr(zone, 'zone_type', 'unknown'),
-                'is_point_cloud': False
+                'zone_name': zone_name,
+                'is_point_cloud': len(zone_faces) == 0
             }
             
         except Exception as e:
@@ -461,6 +516,7 @@ def extract_zone_mesh(mesh_data: Any, zone_name: str) -> Optional[Dict[str, Any]
                 'points': zone_points,
                 'faces': [],
                 'zone_type': 'unknown',
+                'zone_name': zone_name,
                 'is_point_cloud': True
             }
     except Exception as e:

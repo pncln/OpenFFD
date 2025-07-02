@@ -57,7 +57,23 @@ class FluentFace:
             face_type: Type of face (e.g., 'triangle', 'quad')
         """
         self.face_id = face_id
-        self.node_indices = node_indices
+        
+        # Validate and ensure proper indexing
+        if not isinstance(node_indices, list):
+            node_indices = list(node_indices)
+        
+        # Ensure all indices are non-negative integers (0-based indexing)
+        validated_indices = []
+        for idx in node_indices:
+            if isinstance(idx, (int, float, np.integer)):
+                int_idx = int(idx)
+                if int_idx < 0:
+                    raise ValueError(f"Invalid negative node index: {int_idx}")
+                validated_indices.append(int_idx)
+            else:
+                raise ValueError(f"Invalid node index type: {type(idx)}")
+        
+        self.node_indices = validated_indices
         self.face_type = face_type
         self.owner_cell = -1
         self.neighbor_cell = -1
@@ -400,9 +416,10 @@ class FluentMeshReader:
             # Try native first, fallback to meshio
             try:
                 mesh = self._read_native()
-                # Check if native parser actually loaded mesh data
-                if len(mesh.points) == 0 or len(mesh.faces) == 0:
-                    logger.warning(f"Native parser returned empty mesh (points: {len(mesh.points)}, faces: {len(mesh.faces)}). Falling back to meshio.")
+                # Check if native parser actually loaded mesh data AND faces
+                total_zone_faces = sum(len(zone.faces) for zone in mesh.zone_list)
+                if len(mesh.points) == 0 or total_zone_faces == 0:
+                    logger.warning(f"Native parser returned insufficient data (points: {len(mesh.points)}, total zone faces: {total_zone_faces}). Falling back to meshio.")
                     return self._read_with_meshio()
                 return mesh
             except Exception as e:
@@ -434,9 +451,15 @@ class FluentMeshReader:
             logger.error(f"Error reading Fluent mesh with native parser: {e}")
             raise
         
+        # Check if we successfully parsed any faces - if not, this might indicate parsing issues
+        total_zone_faces = sum(len(zone.faces) for zone in self.mesh.zone_list)
+        if total_zone_faces == 0 and MESHIO_AVAILABLE:
+            logger.warning("Native parser found no faces in any zone - this may indicate parsing issues")
+            logger.warning("Consider using meshio fallback for better connectivity parsing")
+        
         logger.info(f"Successfully loaded mesh with {len(self.mesh.points)} points, "
                    f"{len(self.mesh.zone_list)} zones, {len(self.mesh.faces)} faces, "
-                   f"{len(self.mesh.cells)} cells")
+                   f"{len(self.mesh.cells)} cells, total zone faces: {total_zone_faces}")
         
         return self.mesh
     
@@ -718,8 +741,13 @@ class FluentMeshReader:
                 
                 # Add all faces from this block to the zone
                 for cell_data in cell_block.data:
-                    face = FluentFace(len(zone.faces), cell_data.tolist(), cell_block.type)
-                    zone.add_face(face)
+                    try:
+                        # Ensure indices are valid for 0-based indexing
+                        connectivity = cell_data.tolist() if hasattr(cell_data, 'tolist') else list(cell_data)
+                        face = FluentFace(len(zone.faces), connectivity, cell_block.type)
+                        zone.add_face(face)
+                    except ValueError as e:
+                        logger.warning(f"Skipping invalid face in zone '{zone.name}': {e}")
                     
                 logger.info(f"✅ Zone '{zone.name}' now has {len(zone.faces)} faces")
             else:
@@ -830,11 +858,14 @@ class FluentMeshReader:
                 
                 # Create faces from connectivity data
                 for i, connectivity in enumerate(face_connectivity):
-                    face = FluentFace(len(all_faces), connectivity, self._get_element_type_name(element_type))
-                    face.zone_id = zone_id
-                    all_faces.append(face)
-                    faces_for_zone.append(face)
-                    zone.add_face(face)
+                    try:
+                        face = FluentFace(len(all_faces), connectivity, self._get_element_type_name(element_type))
+                        face.zone_id = zone_id
+                        all_faces.append(face)
+                        faces_for_zone.append(face)
+                        zone.add_face(face)
+                    except ValueError as e:
+                        logger.warning(f"Skipping invalid face {i} in zone {zone_id}: {e}")
                 
                 total_faces_assigned += len(faces_for_zone)
                 logger.info(f"Assigned {len(faces_for_zone)} faces to zone '{zone.name}' (ID={zone_id})")
@@ -1004,46 +1035,111 @@ class FluentMeshReader:
         # Remove extra whitespace and split into tokens
         tokens = section_data.split()
         
-        # Determine number of nodes per face based on element type
-        if element_type == 2:  # Line
-            nodes_per_face = 2
-        elif element_type == 3:  # Triangle
-            nodes_per_face = 3
-        elif element_type == 4:  # Quadrilateral
-            nodes_per_face = 4
-        else:
-            logger.warning(f"Unknown element type {element_type}, assuming 4 nodes per face")
-            nodes_per_face = 4
+        # Check if this is a mixed element type section
+        is_mixed_section = (element_type == 0)
         
-        # Parse face connectivity data
-        # Fluent format: for each face: node1 node2 ... nodeN left_cell right_cell
-        nodes_plus_cells = nodes_per_face + 2  # nodes + left_cell + right_cell
-        
-        i = 0
-        while i < len(tokens) and len(faces) < expected_count:
-            try:
-                # Extract node indices for this face
-                if i + nodes_per_face - 1 < len(tokens):
-                    face_nodes = []
+        if is_mixed_section:
+            # Mixed element type section: each face line starts with element type
+            # Format: element_type node1 node2 ... nodeN left_cell right_cell
+            logger.debug(f"Parsing mixed element type section with {len(tokens)} tokens")
+            
+            i = 0
+            while i < len(tokens) and len(faces) < expected_count:
+                try:
+                    if i >= len(tokens):
+                        break
                     
-                    # Convert hex node indices to decimal
-                    for j in range(nodes_per_face):
-                        node_idx = int(tokens[i + j], 16) - 1  # Convert to 0-based indexing
+                    # Read element type for this face
+                    face_element_type = int(tokens[i])
+                    
+                    # Determine number of nodes for this face type
+                    if face_element_type == 2:  # Line
+                        nodes_per_face = 2
+                    elif face_element_type == 3:  # Triangle
+                        nodes_per_face = 3
+                    elif face_element_type == 4:  # Quadrilateral
+                        nodes_per_face = 4
+                    else:
+                        logger.warning(f"Unknown face element type {face_element_type}, skipping")
+                        i += 1
+                        continue
+                    
+                    # Check if we have enough tokens for this face
+                    tokens_needed = 1 + nodes_per_face + 2  # element_type + nodes + left_cell + right_cell
+                    if i + tokens_needed > len(tokens):
+                        break
+                    
+                    # Extract node indices (skip the element type at position i)
+                    face_nodes = []
+                    for j in range(1, nodes_per_face + 1):  # Start from 1 to skip element type
+                        node_idx = int(tokens[i + j], 16) - 1  # Convert hex to 0-based indexing
                         face_nodes.append(node_idx)
                     
                     faces.append(face_nodes)
                     
-                    # Skip past this face's data (nodes + cells)
-                    i += nodes_plus_cells
-                else:
-                    break
+                    # Move to next face (skip element_type + nodes + cells)
+                    i += tokens_needed
                     
-            except (ValueError, IndexError):
-                # Skip invalid data
-                i += 1
-                continue
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"Error parsing face at token {i}: {e}")
+                    i += 1
+                    continue
+        else:
+            # Fixed element type section: all faces have the same element type
+            # Format: node1 node2 ... nodeN left_cell right_cell
+            
+            # Determine number of nodes per face based on element type
+            if element_type == 2:  # Line
+                nodes_per_face = 2
+            elif element_type == 3:  # Triangle
+                nodes_per_face = 3
+            elif element_type == 4:  # Quadrilateral
+                nodes_per_face = 4
+            else:
+                logger.warning(f"Unknown element type {element_type}, assuming 4 nodes per face")
+                nodes_per_face = 4
+            
+            # Parse face connectivity data
+            nodes_plus_cells = nodes_per_face + 2  # nodes + left_cell + right_cell
+            
+            i = 0
+            while i < len(tokens) and len(faces) < expected_count:
+                try:
+                    # Extract node indices for this face
+                    if i + nodes_per_face - 1 < len(tokens):
+                        face_nodes = []
+                        
+                        # Convert hex node indices to decimal
+                        for j in range(nodes_per_face):
+                            node_idx = int(tokens[i + j], 16) - 1  # Convert to 0-based indexing
+                            face_nodes.append(node_idx)
+                        
+                        faces.append(face_nodes)
+                        
+                        # Skip past this face's data (nodes + cells)
+                        i += nodes_plus_cells
+                    else:
+                        break
+                        
+                except (ValueError, IndexError):
+                    # Skip invalid data
+                    i += 1
+                    continue
         
-        logger.debug(f"Parsed {len(faces)} faces from {len(tokens)} tokens (expected {expected_count})")
+        # Enhanced debugging for connectivity issues
+        if len(faces) == 0:
+            logger.warning(f"No faces parsed! Tokens: {len(tokens)}, Expected: {expected_count}, Mixed: {is_mixed_section}")
+            if len(tokens) > 0:
+                logger.warning(f"First 10 tokens: {tokens[:10]}")
+        elif len(faces) < expected_count // 2:
+            logger.warning(f"Very few faces parsed: {len(faces)} vs expected {expected_count}")
+            
+        logger.debug(f"Parsed {len(faces)} faces from {len(tokens)} tokens (expected {expected_count}, mixed={is_mixed_section})")
+        
+        # Debug first few faces
+        if faces and len(faces) > 0:
+            logger.debug(f"First few faces: {faces[:3]}")
+            
         return faces
     
     def _extract_face_sections(self) -> List[Dict]:
@@ -1171,3 +1267,52 @@ class FluentMeshReader:
         } for zone in self.mesh.zone_list}
         
         logger.info(f"Built connectivity for {len(self.mesh.zone_list)} zones")
+        
+        # Validate mesh connectivity
+        self._validate_mesh_connectivity()
+    
+    def _validate_mesh_connectivity(self):
+        """Validate that all face connectivity indices are within valid bounds."""
+        if not hasattr(self.mesh, 'points') or len(self.mesh.points) == 0:
+            logger.warning("No points available for connectivity validation")
+            return
+        
+        max_point_index = len(self.mesh.points) - 1
+        total_faces_checked = 0
+        total_invalid_faces = 0
+        
+        for zone in self.mesh.zone_list:
+            zone_invalid_faces = 0
+            max_span = 0  # Track maximum span of node indices in this zone
+            
+            for face in zone.faces:
+                total_faces_checked += 1
+                
+                # Check for invalid indices
+                invalid_indices = [idx for idx in face.node_indices if idx < 0 or idx > max_point_index]
+                if invalid_indices:
+                    zone_invalid_faces += 1
+                    total_invalid_faces += 1
+                    logger.debug(f"Invalid face connectivity in zone '{zone.name}': {face.node_indices}, "
+                               f"invalid indices: {invalid_indices}, max valid index: {max_point_index}")
+                
+                # Track connectivity span to detect domain-spanning faces
+                if face.node_indices:
+                    face_span = max(face.node_indices) - min(face.node_indices)
+                    max_span = max(max_span, face_span)
+            
+            # Report zone statistics
+            if zone_invalid_faces > 0:
+                logger.warning(f"Zone '{zone.name}': {zone_invalid_faces}/{len(zone.faces)} faces have invalid connectivity")
+            
+            # Report suspicious connectivity patterns
+            if max_span > max_point_index // 2:  # Faces spanning more than half the domain
+                logger.warning(f"Zone '{zone.name}': Maximum connectivity span is {max_span} "
+                             f"(potentially domain-spanning faces, max point index: {max_point_index})")
+            else:
+                logger.info(f"Zone '{zone.name}': {len(zone.faces)} faces, max connectivity span: {max_span} (good local connectivity)")
+        
+        if total_invalid_faces > 0:
+            logger.error(f"Mesh connectivity validation: {total_invalid_faces}/{total_faces_checked} faces have invalid indices")
+        else:
+            logger.info(f"Mesh connectivity validation: All {total_faces_checked} faces have valid connectivity")

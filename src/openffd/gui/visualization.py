@@ -52,6 +52,7 @@ class FFDVisualizationWidget(QWidget):
         self.mesh_actor = None
         self.ffd_actor = None
         self.ffd_points_actor = None
+        self.boundary_actors = {}  # Dict to store boundary zone actors by zone name
         
         self._setup_ui()
     
@@ -128,6 +129,12 @@ class FFDVisualizationWidget(QWidget):
             self.plotter.remove_actor(self.mesh_actor)
             self.mesh_actor = None
         
+        # Clear existing boundary actors
+        for zone_name, actor in self.boundary_actors.items():
+            if actor:
+                self.plotter.remove_actor(actor)
+        self.boundary_actors.clear()
+        
         if mesh_data is not None:
             try:
                 # Check if this is a zone mesh data dict with face connectivity
@@ -135,26 +142,8 @@ class FFDVisualizationWidget(QWidget):
                     self._render_zone_mesh(mesh_data)
                 # Check if this is a full Fluent mesh with boundaries
                 elif hasattr(mesh_data, 'zones') and hasattr(mesh_data, 'points'):
-                    # Don't render all boundaries automatically to prevent GPU crashes
-                    # Instead, render as optimized point cloud for performance
-                    # For large meshes (>100k points), subsample for performance
-                    if len(mesh_points) > 100000:
-                        # Subsample large point clouds for better performance
-                        step = max(1, len(mesh_points) // 50000)  # Max 50k points
-                        display_points = mesh_points[::step]
-                        logger.info(f"Subsampling {len(mesh_points)} points to {len(display_points)} for performance")
-                    else:
-                        display_points = mesh_points
-                    
-                    pv_mesh = pv.PolyData(display_points)
-                    self.mesh_actor = self.plotter.add_mesh(
-                        pv_mesh,
-                        style='points',
-                        color='lightblue',
-                        point_size=1,
-                        render_points_as_spheres=False  # Much faster rendering
-                    )
-                    logger.info(f"Rendered full mesh as point cloud with {len(mesh_points)} points")
+                    # Render boundary zones as individual surfaces for visibility control
+                    self._render_full_mesh_with_boundaries(mesh_data)
                 # Handle other mesh types
                 elif hasattr(mesh_data, 'points') and hasattr(mesh_data, 'cells'):
                     # Use mesh directly if compatible
@@ -173,15 +162,21 @@ class FFDVisualizationWidget(QWidget):
                         show_edges=True
                     )
                 else:
-                    # Create a point cloud from the mesh_points
-                    pv_mesh = pv.PolyData(mesh_points)
-                    self.mesh_actor = self.plotter.add_mesh(
-                        pv_mesh, 
-                        style='points', 
-                        color='blue', 
-                        point_size=1,
-                        render_points_as_spheres=False  # Much faster
-                    )
+                    # NO POINT CLOUDS - create solid surface from mesh points
+                    try:
+                        pv_mesh = pv.PolyData(mesh_points)
+                        surface_mesh = pv_mesh.convex_hull()
+                        self.mesh_actor = self.plotter.add_mesh(
+                            surface_mesh, 
+                            style='surface', 
+                            color='blue', 
+                            opacity=1.0,
+                            show_edges=False
+                        )
+                        logger.info(f"Created solid surface from {len(mesh_points)} mesh points")
+                    except Exception as surf_error:
+                        logger.error(f"Cannot create surface from mesh points: {surf_error}")
+                        raise surf_error
                 
                 # Reset camera to focus on mesh
                 self.plotter.reset_camera()
@@ -198,38 +193,83 @@ class FFDVisualizationWidget(QWidget):
         points = zone_mesh_data['points']
         faces = zone_mesh_data['faces']
         zone_type = zone_mesh_data.get('zone_type', 'unknown')
+        zone_name = zone_mesh_data.get('zone_name', 'unknown')
         is_point_cloud = zone_mesh_data.get('is_point_cloud', True)
         
-        if not is_point_cloud and faces:
-            # Professional surface mesh rendering with advanced optimization
+        # Debug logging for connectivity issues
+        logger.info(f"🔍 Zone visualization: is_point_cloud={is_point_cloud}, faces_count={len(faces) if faces else 0}")
+        
+        if not is_point_cloud and faces and len(faces) > 0:
+            # Choose rendering mode based on zone size
+            face_count = len(faces)
+            
+            # Debug: Check face connectivity
+            logger.info(f"🔍 First few faces: {faces[:3] if len(faces) >= 3 else faces}")
+            
+            # ALL zones use the same complete surface rendering (no artificial thresholds)
+            logger.info(f"🚀 Complete surface rendering for zone: {face_count:,} faces")
             try:
-                # Apply professional-grade mesh optimization
-                optimized_mesh, lod_levels = self._optimize_surface_for_performance(faces, points)
-                
-                # Professional rendering with performance optimizations
-                color = self._get_zone_color(zone_type)
-                
-                # Advanced rendering pipeline
-                self.mesh_actor = self._render_professional_surface(
-                    optimized_mesh, color, zone_type, lod_levels
-                )
-                
-                logger.info(f"🎨 Professional surface rendered: {optimized_mesh.n_points:,} points, {optimized_mesh.n_faces:,} faces")
+                self.mesh_actor = self._render_fast_surface(faces, points, zone_name)
+                logger.info(f"✅ Complete surface rendered: {len(points):,} points, {face_count:,} faces")
                 return
             except Exception as e:
-                logger.warning(f"Failed to create surface mesh: {e}, falling back to point cloud")
+                logger.error(f"Surface rendering failed: {e}, attempting emergency surface creation")
+                # Try emergency surface creation instead of point cloud
+                try:
+                    pv_mesh = pv.PolyData(points)
+                    surface_mesh = pv_mesh.convex_hull()
+                    color = self._get_zone_color(zone_name)
+                    self.mesh_actor = self.plotter.add_mesh(
+                        surface_mesh,
+                        style='surface',
+                        color=color,
+                        opacity=1.0,
+                        show_edges=False
+                    )
+                    logger.info(f"Emergency surface created")
+                    return
+                except Exception as emergency_error:
+                    logger.error(f"All surface creation failed: {emergency_error}")
+                    raise emergency_error
         
-        # Fall back to point cloud rendering
-        pv_mesh = pv.PolyData(points)
-        color = self._get_zone_color(zone_type)
-        self.mesh_actor = self.plotter.add_mesh(
-            pv_mesh,
-            style='points',
-            color=color,
-            point_size=2,
-            render_points_as_spheres=False  # Much faster
-        )
-        logger.info(f"Rendered zone as point cloud with {len(points)} points")
+        # No point cloud fallback - force surface creation with all points
+        logger.warning(f"No valid faces found, creating surface from all points using convex hull")
+        try:
+            # Create a surface mesh from the point cloud using Delaunay triangulation
+            pv_mesh = pv.PolyData(points)
+            
+            # Try to create a surface from points
+            if len(points) > 3:
+                try:
+                    # For 2D-like surfaces (like wedges), project to best plane and triangulate
+                    surface_mesh = pv_mesh.delaunay_2d()
+                    if surface_mesh.n_faces > 0:
+                        color = self._get_zone_color(zone_name)
+                        self.mesh_actor = self.plotter.add_mesh(
+                            surface_mesh,
+                            style='surface',
+                            color=color,
+                            opacity=1.0,
+                            show_edges=False
+                        )
+                        logger.info(f"✅ Created solid surface from {len(points)} points using Delaunay triangulation")
+                        return
+                except Exception as delaunay_error:
+                    logger.warning(f"Delaunay triangulation failed: {delaunay_error}")
+            
+            # Ultimate fallback - at least show something but prefer surface over points
+            color = self._get_zone_color(zone_name)  
+            self.mesh_actor = self.plotter.add_mesh(
+                pv_mesh,
+                style='surface',  # Force surface even without faces
+                color=color,
+                opacity=1.0
+            )
+            logger.warning(f"Fallback: rendered {len(points)} points as basic surface")
+            
+        except Exception as surface_error:
+            logger.error(f"All surface creation methods failed: {surface_error}")
+            raise surface_error
     
     def _render_full_mesh_with_boundaries(self, mesh_data: Any):
         """Render full mesh with boundary visibility controls.
@@ -237,8 +277,11 @@ class FFDVisualizationWidget(QWidget):
         Args:
             mesh_data: Full mesh data with zones
         """
-        # For now, render all boundary zones as surfaces
-        boundary_actors = []
+        # Clear existing boundary actors
+        for zone_name, actor in self.boundary_actors.items():
+            if actor:
+                self.plotter.remove_actor(actor)
+        self.boundary_actors.clear()
         
         try:
             from openffd.mesh.general import extract_zone_mesh
@@ -256,72 +299,76 @@ class FFDVisualizationWidget(QWidget):
                 
                 if not is_volume:
                     try:
-                        zone_mesh = extract_zone_mesh(mesh_data, zone_name)
-                        if zone_mesh and not zone_mesh['is_point_cloud']:
-                            # Create surface for this boundary
-                            points = zone_mesh['points']
-                            faces = zone_mesh['faces']
-                            
-                            if faces:
-                                # Limit faces for performance
-                                max_faces = 20000  # Conservative limit for full mesh rendering
-                                display_faces = faces[:max_faces] if len(faces) > max_faces else faces
+                        # Create solid surfaces from all zone points instead of point clouds
+                        zone_points = mesh_data.get_zone_points(zone_name)
+                        if zone_points is not None and len(zone_points) > 0:
+                            try:
+                                # Create surface from points using convex hull
+                                pv_mesh = pv.PolyData(zone_points)
+                                surface_mesh = pv_mesh.convex_hull()
+                                color = self._get_zone_color(zone_type)
                                 
-                                pv_faces = []
-                                for face in display_faces:
-                                    if len(face) >= 3:
-                                        pv_faces.extend([len(face)] + list(face))
-                                
-                                if pv_faces:
-                                    pv_mesh = pv.PolyData(points, faces=np.array(pv_faces, dtype=np.int32))
-                                    color = self._get_zone_color(zone_type)
-                                    
-                                    actor = self.plotter.add_mesh(
-                                        pv_mesh,
-                                        style='surface',
-                                        color=color,
-                                        opacity=0.7,
-                                        show_edges=True,
-                                        name=zone_name  # For visibility control
-                                    )
-                                    boundary_actors.append((zone_name, actor))
+                                actor = self.plotter.add_mesh(
+                                    surface_mesh,
+                                    style='surface',
+                                    color=color,
+                                    opacity=1.0,
+                                    show_edges=False,
+                                    name=zone_name
+                                )
+                                self.boundary_actors[zone_name] = actor
+                                logger.info(f"Created solid surface for zone '{zone_name}': {surface_mesh.n_faces} faces")
+                            except Exception as surf_error:
+                                logger.warning(f"Failed to create surface for zone '{zone_name}': {surf_error}")
+                                # Skip this zone rather than create point cloud
                     except Exception as e:
                         logger.warning(f"Failed to render boundary zone '{zone_name}': {e}")
             
-            if boundary_actors:
-                logger.info(f"Rendered {len(boundary_actors)} boundary zones as surfaces")
+            if self.boundary_actors:
+                logger.info(f"Rendered {len(self.boundary_actors)} boundary zones as solid surfaces")
             else:
-                # Fall back to point cloud if no surfaces could be created
-                pv_mesh = pv.PolyData(self.mesh_points)
-                self.mesh_actor = self.plotter.add_mesh(
-                    pv_mesh,
-                    style='points',
-                    color='blue',
-                    point_size=3,
-                    render_points_as_spheres=True
-                )
-                logger.warning("No boundary surfaces found, rendered as point cloud")
+                # Create emergency mesh surface if no boundary surfaces found
+                try:
+                    pv_mesh = pv.PolyData(self.mesh_points)
+                    surface_mesh = pv_mesh.convex_hull()
+                    self.mesh_actor = self.plotter.add_mesh(
+                        surface_mesh,
+                        style='surface',
+                        color='blue',
+                        opacity=1.0,
+                        show_edges=False
+                    )
+                    logger.info("Created emergency solid surface from all mesh points")
+                except Exception as emergency_error:
+                    logger.error(f"Cannot create any surface: {emergency_error}")
+                    raise emergency_error
                 
         except Exception as e:
             logger.error(f"Error rendering full mesh: {e}")
-            # Ultimate fallback to point cloud
-            pv_mesh = pv.PolyData(self.mesh_points)
-            self.mesh_actor = self.plotter.add_mesh(
-                pv_mesh,
-                style='points',
-                color='blue',
-                point_size=3,
-                render_points_as_spheres=True
-            )
+            # NO POINT CLOUDS - create emergency surface from all mesh points
+            try:
+                pv_mesh = pv.PolyData(self.mesh_points)
+                surface_mesh = pv_mesh.convex_hull()
+                self.mesh_actor = self.plotter.add_mesh(
+                    surface_mesh,
+                    style='surface',
+                    color='blue',
+                    opacity=1.0,
+                    show_edges=False
+                )
+                logger.info("Created emergency solid surface from mesh points")
+            except Exception as final_error:
+                logger.error(f"All surface creation failed: {final_error}")
+                raise final_error
     
-    def _get_zone_color(self, zone_type: str) -> str:
-        """Get appropriate color for zone type.
+    def _get_zone_color(self, zone_identifier: str) -> str:
+        """Get appropriate color for zone type or name.
         
         Args:
-            zone_type: Type of the zone
+            zone_identifier: Zone name or type
             
         Returns:
-            Color string for the zone type
+            Color string for the zone
         """
         color_map = {
             'wall': 'lightcoral',
@@ -335,7 +382,28 @@ class FFDVisualizationWidget(QWidget):
             'interior': 'lightsteelblue',
             'fluid': 'lightsteelblue'
         }
-        return color_map.get(zone_type.lower(), 'lightgray')
+        
+        # Special handling for specific zones to ensure visibility and distinction
+        zone_identifier_lower = zone_identifier.lower()
+        
+        # Wedge zones get distinct bright colors
+        if 'wedge' in zone_identifier_lower:
+            if 'pos' in zone_identifier_lower:
+                return 'red'  # Bright red for wedge_pos
+            elif 'neg' in zone_identifier_lower:
+                return 'blue'  # Bright blue for wedge_neg
+            else:
+                return 'magenta'  # Fallback bright color for other wedge zones
+        
+        # Other specific thin surface zones
+        if 'symmetry' in zone_identifier_lower:
+            return 'orange'  # Bright orange for symmetry planes
+        elif 'interface' in zone_identifier_lower:
+            return 'cyan'  # Bright cyan for interfaces
+        elif 'periodic' in zone_identifier_lower:
+            return 'lime'  # Bright lime for periodic surfaces
+        
+        return color_map.get(zone_identifier_lower, 'lightgray')
     
     def set_ffd(self, control_points: np.ndarray, control_dim: Tuple[int, int, int]):
         """Set the FFD control box to visualize.
@@ -613,14 +681,9 @@ class FFDVisualizationWidget(QWidget):
         logger.info(f"🔧 Professional mesh optimization: {len(points):,} points, {len(faces):,} faces")
         
         try:
-            # Step 1: Intelligent face sampling for large meshes
-            target_faces = 25000  # Professional balance of quality vs performance
-            
-            if len(faces) > target_faces:
-                logger.info(f"🎯 Professional face sampling: {len(faces):,} → {target_faces:,} faces")
-                optimized_faces = self._intelligent_face_sampling(faces, points, target_faces)
-            else:
-                optimized_faces = faces
+            # NO DOWNSAMPLING - Professional rendering with ALL faces preserved
+            optimized_faces = faces
+            logger.info(f"🎯 Professional rendering: preserving ALL {len(faces):,} faces for complete surface coverage")
             
             # Step 2: Create PyVista mesh with proper face format
             pv_faces = []
@@ -630,9 +693,20 @@ class FFDVisualizationWidget(QWidget):
             
             if not pv_faces:
                 logger.error("No valid faces found for optimization")
-                # Return point cloud fallback
-                point_mesh = pv.PolyData(points)
-                return point_mesh, {"original": point_mesh}
+                # NO POINT CLOUDS - create surface using convex hull
+                try:
+                    point_mesh = pv.PolyData(points)
+                    surface_mesh = point_mesh.convex_hull()
+                    logger.info(f"Emergency convex hull surface: {surface_mesh.n_faces} faces")
+                    return surface_mesh, {"original": surface_mesh}
+                except Exception:
+                    # Final attempt using Delaunay
+                    try:
+                        surface_mesh = point_mesh.delaunay_2d()
+                        logger.info(f"Emergency Delaunay surface: {surface_mesh.n_faces} faces")
+                        return surface_mesh, {"original": surface_mesh}
+                    except Exception as e:
+                        raise ValueError(f"Cannot create any surface from points: {e}")
             
             # Create the initial mesh
             mesh = pv.PolyData(points, faces=np.array(pv_faces, dtype=np.int32))
@@ -643,10 +717,26 @@ class FFDVisualizationWidget(QWidget):
                 mesh = mesh.clean()
                 logger.info(f"✅ Mesh cleaned: {mesh.n_points:,} points, {mesh.n_faces:,} faces")
                 
-                # Triangulate for consistency and better GPU performance
+                # Advanced triangulation with gap-filling for consistency and better GPU performance
                 if mesh.n_faces > 0:
+                    original_face_count = mesh.n_faces
+                    
+                    # First try standard triangulation
                     mesh = mesh.triangulate()
                     logger.info(f"✅ Mesh triangulated: {mesh.n_faces:,} triangular faces")
+                    
+                    # Check if we have sparse connectivity that might cause gaps
+                    face_point_ratio = mesh.n_faces / max(mesh.n_points, 1)
+                    if face_point_ratio < 1.2:  # Professional threshold for gap detection
+                        logger.info(f"Professional gap-filling for sparse connectivity ({face_point_ratio:.3f})")
+                        try:
+                            # Apply professional hole filling
+                            filled_mesh = mesh.fill_holes(hole_size=500)
+                            if filled_mesh.n_faces > mesh.n_faces:
+                                mesh = filled_mesh
+                                logger.info(f"✅ Professional gap-filling completed: {mesh.n_faces:,} faces")
+                        except Exception:
+                            logger.debug("Professional gap-filling failed, continuing with standard mesh")
                 
             except Exception as pe:
                 logger.warning(f"Mesh processing warning: {pe}, continuing with original")
@@ -673,7 +763,7 @@ class FFDVisualizationWidget(QWidget):
             
         except Exception as e:
             logger.warning(f"Professional optimization failed: {e}, using fallback")
-            return self._fallback_optimization_simple(faces, points)
+            return self._fallback_optimization(faces, points)
     
     def _convert_faces_to_pyvista(self, faces: list) -> np.ndarray:
         """Convert face list to PyVista format efficiently."""
@@ -687,133 +777,54 @@ class FFDVisualizationWidget(QWidget):
             logger.warning(f"Face conversion failed: {e}")
             return None
     
-    def _apply_quadric_decimation(self, mesh: pv.PolyData) -> pv.PolyData:
-        """Apply industry-standard Quadric Error Mesh Decimation.
+    def _apply_no_decimation_processing(self, mesh: pv.PolyData) -> pv.PolyData:
+        """Apply professional mesh processing WITHOUT face reduction.
         
-        This preserves geometric features and surface quality much better
-        than naive downsampling. Used in professional CAD/CFD software.
+        Preserves ALL faces while applying quality improvements like
+        smoothing and normal computation for better visual quality.
         """
         try:
-            # Target: Adaptive reduction based on mesh complexity
-            if mesh.n_faces > 100000:
-                target_reduction = 0.15  # Keep 15% for very large meshes
-            elif mesh.n_faces > 50000:
-                target_reduction = 0.25  # Keep 25% for large meshes
-            else:
-                target_reduction = 0.5   # Keep 50% for moderate meshes
+            logger.info(f"🎯 NO DECIMATION: Preserving ALL {mesh.n_faces:,} faces for complete surface")
             
-            logger.info(f"🎯 Quadric decimation: targeting {target_reduction:.1%} face retention")
-            
-            # VTK's professional quadric clustering algorithm
-            decimated = mesh.decimate_pro(
-                target_reduction,
-                feature_angle=15.0,          # Preserve sharp features
-                split_angle=75.0,            # Handle complex geometry
-                splitting=True,              # Better quality
-                pre_split_mesh=True,         # Preprocessing
-                preserve_topology=True,      # Maintain connectivity
-                boundary_vertex_deletion=False  # Keep boundaries intact
-            )
-            
-            # Apply mesh smoothing to improve visual quality
-            smoothed = decimated.smooth(
-                n_iter=10,                   # Light smoothing
-                relaxation_factor=0.1,       # Conservative
-                feature_smoothing=False,     # Preserve features
-                boundary_smoothing=False     # Keep boundaries sharp
-            )
-            
-            return smoothed
+            # Apply light smoothing to improve visual quality WITHOUT reducing faces
+            try:
+                smoothed = mesh.smooth(
+                    n_iter=5,                    # Very light smoothing
+                    relaxation_factor=0.05,      # Very conservative
+                    feature_smoothing=False,     # Preserve features
+                    boundary_smoothing=False     # Keep boundaries sharp
+                )
+                logger.info(f"✅ Applied light smoothing while preserving all faces")
+                return smoothed
+            except Exception as smooth_error:
+                logger.warning(f"Smoothing failed: {smooth_error}, returning original mesh")
+                return mesh
             
         except Exception as e:
-            logger.warning(f"Quadric decimation failed: {e}, using simple decimation")
-            # Fallback to simpler but still professional algorithm
-            return mesh.decimate(0.3)  # Simple 70% reduction
+            logger.warning(f"Mesh processing failed: {e}, returning original")
+            return mesh
     
-    def _intelligent_face_sampling(self, faces: list, points: np.ndarray, target_count: int) -> list:
-        """Ultra-fast intelligent face sampling optimized for performance.
-        
-        Uses optimized area-based sampling with vectorized operations.
+    def _preserve_all_faces(self, faces: list, points: np.ndarray, target_count: int) -> list:
+        """Preserve ALL faces for complete surface coverage - NO SAMPLING.
         
         Args:
             faces: Original face list
             points: Point coordinates
-            target_count: Target number of faces to keep
+            target_count: Ignored - all faces preserved
             
         Returns:
-            List of sampled faces
+            All valid faces (no reduction)
         """
         try:
-            if len(faces) <= target_count:
-                return faces
-            
-            # Fast preprocessing - filter valid faces
+            # Filter only invalid faces, keep ALL valid ones
             valid_faces = [face for face in faces if len(face) >= 3]
             
-            if len(valid_faces) <= target_count:
-                return valid_faces
-            
-            # For very large meshes, use fast uniform sampling with area hints
-            if len(valid_faces) > 100000:
-                logger.info(f"🚀 Ultra-fast sampling for large mesh: {len(valid_faces):,} faces")
-                # Simple but effective: take every nth face with small area bias
-                step = len(valid_faces) // target_count
-                return valid_faces[::step][:target_count]
-            
-            # Optimized area calculation using vectorized operations
-            try:
-                # Sample subset for area calculation (performance optimization)
-                sample_size = min(len(valid_faces), target_count * 2)
-                sample_indices = np.linspace(0, len(valid_faces)-1, sample_size, dtype=int)
-                
-                face_areas = []
-                sampled_faces = []
-                
-                for i in sample_indices:
-                    face = valid_faces[i]
-                    try:
-                        # Fast area calculation
-                        p1, p2, p3 = points[face[0]], points[face[1]], points[face[2]]
-                        # Simplified area calculation (faster)
-                        v1, v2 = p2 - p1, p3 - p1
-                        area = np.linalg.norm(np.cross(v1, v2))
-                        face_areas.append(area)
-                        sampled_faces.append(face)
-                    except (IndexError, ValueError):
-                        continue
-                
-                if len(sampled_faces) <= target_count:
-                    return sampled_faces
-                
-                # Quick area-based selection
-                face_areas = np.array(face_areas)
-                # Select top 80% by area, then uniform sample from them
-                area_threshold = np.percentile(face_areas, 20)  # Keep top 80%
-                good_indices = face_areas >= area_threshold
-                
-                good_faces = [sampled_faces[i] for i in range(len(sampled_faces)) if good_indices[i]]
-                
-                if len(good_faces) <= target_count:
-                    result = good_faces
-                else:
-                    # Final uniform sampling
-                    step = len(good_faces) // target_count
-                    result = good_faces[::step][:target_count]
-                
-                logger.info(f"🎯 Optimized sampling: {len(faces):,} → {len(result):,} faces (area-optimized)")
-                return result
-                
-            except Exception as area_error:
-                logger.warning(f"Area-based sampling failed: {area_error}, using uniform")
-                # Fast uniform fallback
-                step = len(valid_faces) // target_count
-                return valid_faces[::step][:target_count]
+            logger.info(f"🎯 PRESERVING ALL FACES: {len(faces):,} → {len(valid_faces):,} valid faces (NO SAMPLING)")
+            return valid_faces
             
         except Exception as e:
-            logger.warning(f"Intelligent sampling failed: {e}, using simple fallback")
-            # Simple fallback
-            step = max(1, len(faces) // target_count)
-            return faces[::step][:target_count]
+            logger.warning(f"Face validation failed: {e}, returning all faces")
+            return faces
             
     def _generate_lod_hierarchy(self, mesh: pv.PolyData) -> dict:
         """Generate Level-of-Detail hierarchy for adaptive rendering.
@@ -827,13 +838,12 @@ class FFDVisualizationWidget(QWidget):
             # LOD 0: Full detail (close view)
             lod_levels[0] = mesh
             
-            # LOD 1: Medium detail (medium distance)
-            if mesh.n_faces > 10000:
-                lod_levels[1] = mesh.decimate_pro(0.5, preserve_topology=True)
+            # NO DECIMATION - All LOD levels use full detail to preserve complete surface
+            # LOD 1: Same as full detail (no face reduction)
+            lod_levels[1] = mesh
             
-            # LOD 2: Low detail (far view)
-            if mesh.n_faces > 50000:
-                lod_levels[2] = mesh.decimate_pro(0.8, preserve_topology=True)
+            # LOD 2: Same as full detail (no face reduction)
+            lod_levels[2] = mesh
             
             logger.info(f"📊 LOD hierarchy: {len(lod_levels)} levels created")
             return lod_levels
@@ -872,10 +882,8 @@ class FFDVisualizationWidget(QWidget):
             pv_faces = self._convert_faces_to_pyvista(faces)
             if pv_faces is not None:
                 mesh = pv.PolyData(points, pv_faces)
-                # Simple but effective decimation
-                if mesh.n_faces > 30000:
-                    mesh = mesh.decimate(0.3)  # Keep 30%
-                mesh = mesh.triangulate()
+                # NO DECIMATION - keep all faces for complete surface
+                mesh = mesh.triangulate()  # Only triangulate, don't reduce faces
                 return mesh, {0: mesh}
             else:
                 # Ultimate fallback: return points only
@@ -883,3 +891,444 @@ class FFDVisualizationWidget(QWidget):
         except Exception as e:
             logger.error(f"Fallback optimization failed: {e}")
             return pv.PolyData(points), {0: pv.PolyData(points)}
+    
+    @pyqtSlot(str, bool)
+    def set_boundary_zone_visibility(self, zone_name: str, visible: bool):
+        """Set the visibility of a boundary zone.
+        
+        Args:
+            zone_name: Name of the zone
+            visible: Whether the zone should be visible
+        """
+        if zone_name in self.boundary_actors:
+            actor = self.boundary_actors[zone_name]
+            if actor:
+                actor.SetVisibility(visible)
+                self.plotter.render()
+                logger.info(f"Set boundary zone '{zone_name}' visibility to {visible}")
+        else:
+            logger.warning(f"Boundary zone '{zone_name}' not found in rendered actors")
+    
+    def _render_fast_surface(self, faces: list, points: np.ndarray, zone_name: str):
+        """Fast surface rendering that preserves ALL faces for complete solid surfaces.
+        
+        This method provides a complete surface rendering pipeline that:
+        - Preserves ALL faces for complete surface coverage
+        - Uses advanced triangulation for gap-free surfaces
+        - Applies professional mesh processing
+        - Prioritizes surface completeness over speed
+        
+        Args:
+            faces: List of face connectivity data
+            points: Numpy array of 3D points
+            zone_name: Name of zone for color selection
+            
+        Returns:
+            PyVista mesh actor
+        """
+        # NO DOWNSAMPLING - Keep ALL faces for complete solid surface coverage
+        sampled_faces = faces
+        logger.info(f"⚡ PRESERVING ALL {len(faces):,} faces for complete solid surface coverage - NO DOWNSAMPLING")
+        
+        # Step 2: Robust face validation and conversion
+        pv_faces = []
+        valid_face_count = 0
+        max_point_index = len(points) - 1
+        
+        for face in sampled_faces:
+            if len(face) < 3:
+                continue
+                
+            # Validate face indices are within bounds and convert to integers
+            try:
+                face_indices = [int(idx) for idx in face]
+            except (ValueError, TypeError):
+                continue
+                
+            # Check all indices are within valid range
+            if any(idx < 0 or idx > max_point_index for idx in face_indices):
+                continue
+                
+            # Remove degenerate faces (duplicate vertices)
+            unique_indices = []
+            seen = set()
+            for idx in face_indices:
+                if idx not in seen:
+                    unique_indices.append(idx)
+                    seen.add(idx)
+            
+            # Need at least 3 unique vertices for a valid face
+            if len(unique_indices) < 3:
+                continue
+                
+            # Handle different cell types properly
+            if len(unique_indices) == 3:
+                # Triangle - keep as is
+                pv_faces.extend([3] + unique_indices)
+                valid_face_count += 1
+            elif len(unique_indices) == 4:
+                # Quadrilateral - add as quad directly (PyVista can handle quads)
+                pv_faces.extend([4] + unique_indices)
+                valid_face_count += 1
+            elif len(unique_indices) == 5:
+                # Pentagon - keep as polygon 
+                pv_faces.extend([5] + unique_indices)
+                valid_face_count += 1
+            elif len(unique_indices) == 6:
+                # Hexagon - keep as polygon
+                pv_faces.extend([6] + unique_indices)
+                valid_face_count += 1
+            else:
+                # For very large polygons, use fan triangulation as fallback
+                if len(unique_indices) <= 10:  # Reasonable polygon size
+                    pv_faces.extend([len(unique_indices)] + unique_indices)
+                    valid_face_count += 1
+                else:
+                    # Fan triangulation only for very large polygons
+                    for i in range(1, len(unique_indices) - 1):
+                        pv_faces.extend([3, unique_indices[0], unique_indices[i], unique_indices[i + 1]])
+                        valid_face_count += 1
+        
+        logger.info(f"🔧 Face validation: {len(sampled_faces):,} → {valid_face_count:,} valid cells (mixed triangles/quads)")
+        
+        if not pv_faces:
+            # Emergency surface creation - never use points
+            logger.warning(f"No valid faces after validation, creating emergency surface")
+            pv_mesh = pv.PolyData(points)
+            
+            # Try to create a surface from the points
+            try:
+                # Use convex hull to create a surface
+                surface_mesh = pv_mesh.convex_hull()
+                color = self._get_zone_color(zone_name)
+                return self.plotter.add_mesh(
+                    surface_mesh,
+                    style='surface',
+                    color=color,
+                    opacity=1.0,
+                    show_edges=False
+                )
+            except Exception as hull_error:
+                logger.error(f"Emergency surface creation failed: {hull_error}")
+                raise ValueError(f"Cannot create any surface for zone {zone_name}")
+        
+        # Step 3: Create mesh with proper validation and processing
+        try:
+            # Convert to numpy array with proper data type
+            faces_array = np.array(pv_faces, dtype=np.int32)
+            
+            # Create mesh with validated faces (mixed triangles and quads)
+            mesh = pv.PolyData(points, faces=faces_array)
+            
+            # Basic mesh validation and cleaning
+            if mesh.n_faces == 0:
+                raise ValueError("No valid faces created")
+            
+            logger.info(f"🔧 Mixed cell mesh created: {mesh.n_points:,} points, {mesh.n_faces:,} faces")
+            
+            # Advanced gap-filling triangulation for complete surface coverage
+            try:
+                if mesh.n_faces > 0:
+                    original_face_count = mesh.n_faces
+                    
+                    # Try multiple triangulation strategies for gap-free surfaces
+                    best_mesh = mesh
+                    best_face_count = original_face_count
+                    
+                    # Strategy 1: Conservative triangulation
+                    try:
+                        triangulated_mesh = mesh.triangulate()
+                        if triangulated_mesh.n_faces >= original_face_count * 0.8:
+                            best_mesh = triangulated_mesh
+                            best_face_count = triangulated_mesh.n_faces
+                            logger.info(f"🔧 Conservative triangulation: {best_face_count:,} triangular faces")
+                    except Exception:
+                        logger.debug("Conservative triangulation failed")
+                    
+                    # Strategy 2: For sparse connectivity (face/point ratio < 1.0), try aggressive gap filling
+                    face_point_ratio = original_face_count / max(mesh.n_points, 1)
+                    if face_point_ratio < 1.0:
+                        logger.info(f"🔧 SPARSE CONNECTIVITY detected ({face_point_ratio:.3f}) - applying gap-filling triangulation")
+                        
+                        try:
+                            # Use fill_holes to close gaps in the surface
+                            filled_mesh = mesh.fill_holes(hole_size=1000)  # Fill moderate-sized holes
+                            if filled_mesh.n_faces > best_face_count:
+                                best_mesh = filled_mesh
+                                best_face_count = filled_mesh.n_faces
+                                logger.info(f"🔧 Gap-filling improved surface: {best_face_count:,} faces")
+                        except Exception:
+                            logger.debug("Gap-filling triangulation failed")
+                        
+                        # Try Delaunay 3D for better connectivity if other methods didn't help much
+                        try:
+                            if best_face_count < original_face_count * 1.2:  # Only if we didn't improve much
+                                delaunay_mesh = mesh.delaunay_3d()
+                                surface_mesh = delaunay_mesh.extract_surface()
+                                if surface_mesh.n_faces > best_face_count:
+                                    best_mesh = surface_mesh
+                                    best_face_count = surface_mesh.n_faces
+                                    logger.info(f"🔧 Delaunay 3D improved surface: {best_face_count:,} faces")
+                        except Exception:
+                            logger.debug("Delaunay 3D triangulation failed")
+                    
+                    # Use the best mesh we found
+                    mesh = best_mesh
+                    logger.info(f"🔧 Final mesh after gap-filling: {mesh.n_faces:,} triangular faces")
+                    
+            except Exception as te:
+                logger.warning(f"Advanced triangulation failed: {te}, keeping original mesh for complete surface")
+            
+            # Conservative mesh cleaning to preserve connectivity
+            try:
+                # Only clean if mesh is very large to avoid breaking connectivity
+                if mesh.n_faces > 100000:
+                    mesh = mesh.clean()
+                    logger.info(f"🔧 Applied conservative cleaning for large mesh")
+                else:
+                    logger.info(f"🔧 Skipped cleaning to preserve connectivity for medium mesh")
+            except Exception as ce:
+                logger.warning(f"Mesh cleaning failed: {ce}, continuing with unclean mesh")
+            
+            logger.info(f"🔧 Mesh created: {mesh.n_points:,} points, {mesh.n_faces:,} faces")
+            
+            # Check for mesh discontinuities/gaps (especially for wedge zones)
+            if 'wedge' in zone_name.lower():
+                logger.info(f"🔧 MESH CONTINUITY CHECK for '{zone_name}':")
+                
+                # Check point distribution
+                bounds = mesh.bounds
+                x_range = bounds[1] - bounds[0]
+                y_range = bounds[3] - bounds[2]
+                z_range = bounds[5] - bounds[4]
+                
+                point_density_x = mesh.n_points / max(x_range, 1e-10) if x_range > 1e-10 else 0
+                point_density_y = mesh.n_points / max(y_range, 1e-10) if y_range > 1e-10 else 0
+                point_density_z = mesh.n_points / max(z_range, 1e-10) if z_range > 1e-10 else 0
+                
+                logger.info(f"🔧   Point densities: X={point_density_x:.1f}, Y={point_density_y:.1f}, Z={point_density_z:.1f}")
+                logger.info(f"🔧   Mesh bounds: X=[{bounds[0]:.3f}, {bounds[1]:.3f}], Y=[{bounds[2]:.3f}, {bounds[3]:.3f}], Z=[{bounds[4]:.3e}, {bounds[5]:.3e}]")
+                
+                # Check face-to-point ratio
+                face_point_ratio = mesh.n_faces / max(mesh.n_points, 1)
+                logger.info(f"🔧   Face/Point ratio: {face_point_ratio:.3f} (good: 1.5-3.0, sparse: <1.0)")
+                
+                if face_point_ratio < 1.0:
+                    logger.warning(f"🔧   LOW FACE DENSITY detected - may cause gaps in surface")
+                elif face_point_ratio > 3.0:
+                    logger.info(f"🔧   High face density - good surface coverage expected")
+            
+            # Add basic normal computation for proper lighting (fast method)
+            try:
+                # First try fast normal computation
+                mesh = mesh.compute_normals(
+                    point_normals=True,     # Essential for smooth lighting
+                    cell_normals=False,     # Skip cell normals for speed
+                    auto_orient_normals=False,  # Skip expensive auto-orientation
+                    consistent_normals=False    # Skip consistency checks
+                )
+                logger.info("⚡ Fast normal computation completed")
+            except Exception as ne:
+                logger.warning(f"Fast normal computation failed: {ne}")
+                
+                # Try even simpler normal computation as fallback
+                try:
+                    mesh = mesh.compute_normals(point_normals=True, cell_normals=False)
+                    logger.info("⚡ Fallback normal computation completed")
+                except Exception as ne2:
+                    logger.warning(f"All normal computation failed: {ne2}, continuing without normals")
+            
+            # Final mesh validation
+            if mesh.n_points == 0 or mesh.n_faces == 0:
+                raise ValueError(f"Invalid mesh after processing: {mesh.n_points} points, {mesh.n_faces} faces")
+            
+            color = self._get_zone_color(zone_name)
+            
+            # Check for degenerate/thin dimensions BEFORE rendering (common in wedge zones)
+            bounds = mesh.bounds
+            x_range = bounds[1] - bounds[0]  # x_max - x_min
+            y_range = bounds[3] - bounds[2]  # y_max - y_min  
+            z_range = bounds[5] - bounds[4]  # z_max - z_min
+            
+            min_thickness = 1e-10  # Threshold for degenerate dimension
+            degenerate_dims = []
+            if x_range < min_thickness:
+                degenerate_dims.append('X')
+            if y_range < min_thickness:
+                degenerate_dims.append('Y')
+            if z_range < min_thickness:
+                degenerate_dims.append('Z')
+            
+            # Decide on edge rendering based on face count and mesh quality
+            show_edges = len(sampled_faces) < 30000  # Only show edges for reasonably sized meshes
+            
+            # Check if we need to compensate for potential gaps
+            face_point_ratio = mesh.n_faces / max(mesh.n_points, 1)
+            has_potential_gaps = face_point_ratio < 1.5  # Low face density suggests gaps
+            
+            # Fast but visually appealing rendering
+            render_settings = {
+                'style': 'surface',
+                'color': color,
+                'opacity': 0.9,
+                'lighting': True,              # Essential for depth perception
+                'smooth_shading': True,        # Smooth surfaces
+                'ambient': 0.4,                # Stronger ambient light for definition
+                'diffuse': 0.6,                # Good surface definition
+                'specular': 0.1,               # Subtle highlights
+            }
+            
+            # Force solid surface rendering for all surfaces
+            render_settings.update({
+                'style': 'surface',     # Always surface, never points
+                'opacity': 1.0,         # Full opacity for solid appearance
+                'show_edges': False,    # Clean surface without edge lines
+                'smooth_shading': True  # Smooth surface interpolation
+            })
+            
+            # Universal handling for ALL degenerate/thin surfaces
+            if degenerate_dims:
+                logger.warning(f"🔧 DEGENERATE SURFACE: {'/'.join(degenerate_dims)} dimension(s) are nearly zero")
+                logger.warning(f"🔧   X range: {x_range:.2e}, Y range: {y_range:.2e}, Z range: {z_range:.2e}")
+                logger.info(f"🔧 APPLYING UNIVERSAL THIN SURFACE FIX for zone '{zone_name}'")
+                
+                # Enhanced rendering for thin surfaces while maintaining solid appearance
+                render_settings.update({
+                    'opacity': 1.0,           # Full opacity for visibility
+                    'ambient': 0.7,           # Higher ambient for better visibility
+                    'diffuse': 0.9,           # Higher diffuse lighting
+                    'style': 'surface',       # Always solid surface
+                    'show_edges': False       # Clean solid surface
+                })
+            
+            # Always render as clean solid surface without edges
+            render_settings['show_edges'] = False
+            logger.info(f"⚡ Solid surface rendering: {len(sampled_faces):,} faces")
+            
+            logger.info(f"🔧 Final render settings: {render_settings}")
+            
+            # Render as solid surface only
+            try:
+                actor = self.plotter.add_mesh(mesh, **render_settings)
+                logger.info(f"✅ Solid surface rendered successfully")
+                    
+            except Exception as render_error:
+                logger.error(f"Surface rendering failed: {render_error}, attempting alternative surface method")
+                # Try alternative surface rendering with basic settings
+                try:
+                    actor = self.plotter.add_mesh(
+                        mesh,
+                        style='surface',
+                        color=color,
+                        opacity=1.0,
+                        show_edges=False
+                    )
+                    logger.info(f"✅ Alternative surface rendering succeeded")
+                except Exception as alt_error:
+                    logger.error(f"All surface rendering failed: {alt_error}")
+                    raise alt_error  # Re-raise to trigger fallback
+            
+            # Debug mesh bounds and camera positioning
+            center = mesh.center
+            logger.info(f"🔧 Mesh bounds: {bounds}")
+            logger.info(f"🔧 Mesh center: {center}")
+            logger.info(f"🔧 Mesh size: {mesh.length}")
+            
+            # Verify actor was created
+            if actor is not None:
+                logger.info(f"🔧 Actor created successfully: {type(actor)}")
+                logger.info(f"🔧 Actor visibility: {actor.GetVisibility()}")
+                
+                # Special debugging for degenerate surfaces
+                if degenerate_dims:
+                    logger.info(f"🔧 DEGENERATE SURFACE DEBUG:")
+                    logger.info(f"🔧   Zone name: {zone_name}")
+                    logger.info(f"🔧   Color: {color}")
+                    logger.info(f"🔧   Degenerate dims: {degenerate_dims}")
+                    logger.info(f"🔧   Actor bounds: {actor.GetBounds() if hasattr(actor, 'GetBounds') else 'N/A'}")
+                    logger.info(f"🔧   Mesh bounds: {bounds}")
+                    logger.info(f"🔧   Render settings: {render_settings}")
+                
+                # Force set actor properties to ensure visibility for ALL actors
+                try:
+                    if hasattr(actor, 'GetProperty'):
+                        prop = actor.GetProperty()
+                        prop.SetOpacity(1.0)  # Force full opacity
+                        if degenerate_dims:
+                            logger.info(f"🔧   Forced opacity to 1.0 for degenerate surface")
+                except Exception as pe:
+                    logger.warning(f"Failed to set actor properties: {pe}")
+            else:
+                logger.error(f"🔧 Actor creation failed - returned None")
+            
+            # Force camera reset to focus on the mesh
+            try:
+                self.plotter.reset_camera()
+                logger.info(f"🔧 Camera reset completed")
+                
+                # Universal camera handling for ALL degenerate/thin surfaces
+                if degenerate_dims:
+                    logger.info(f"🔧 APPLYING UNIVERSAL CAMERA for degenerate surface '{zone_name}'")
+                    
+                    # Determine best camera position based on which dimensions are degenerate
+                    if 'Z' in degenerate_dims:
+                        # For thin Z surfaces, position camera to look down from above
+                        camera_pos = (center[0], center[1], center[2] + 10.0)
+                        self.plotter.camera_position = [camera_pos, center, (0, 1, 0)]
+                        logger.info(f"🔧   Set camera above thin Z surface: {camera_pos}")
+                    elif 'Y' in degenerate_dims:
+                        # For thin Y surfaces, position camera to look from front
+                        camera_pos = (center[0], center[1] + 10.0, center[2])
+                        self.plotter.camera_position = [camera_pos, center, (0, 0, 1)]
+                        logger.info(f"🔧   Set camera in front of thin Y surface: {camera_pos}")
+                    elif 'X' in degenerate_dims:
+                        # For thin X surfaces, position camera to look from side
+                        camera_pos = (center[0] + 10.0, center[1], center[2])
+                        self.plotter.camera_position = [camera_pos, center, (0, 0, 1)]
+                        logger.info(f"🔧   Set camera to side of thin X surface: {camera_pos}")
+                    
+                    # Zoom in closer for better visibility of ALL thin surfaces
+                    self.plotter.camera.zoom(2.0)  # Zoom in 2x
+                    logger.info(f"🔧   Applied 2x zoom for thin surface")
+                
+                # Force render
+                self.plotter.render()
+                logger.info(f"🔧 Force render completed")
+            except Exception as cam_e:
+                logger.warning(f"Camera reset/render failed: {cam_e}")
+            
+            return actor
+            
+        except Exception as e:
+            logger.error(f"Fast surface creation failed: {e}")
+            # NO POINT CLOUDS - create emergency solid surface using convex hull
+            try:
+                pv_mesh = pv.PolyData(points)
+                # Create solid surface from points using convex hull
+                surface_mesh = pv_mesh.convex_hull()
+                color = self._get_zone_color(zone_name)
+                logger.info(f"Emergency convex hull surface: {surface_mesh.n_faces} faces")
+                return self.plotter.add_mesh(
+                    surface_mesh,
+                    style='surface',
+                    color=color,
+                    opacity=1.0,
+                    show_edges=False
+                )
+            except Exception as hull_error:
+                # Final attempt: 2D Delaunay triangulation for surface creation
+                try:
+                    pv_mesh = pv.PolyData(points)
+                    surface_mesh = pv_mesh.delaunay_2d()
+                    color = self._get_zone_color(zone_name)
+                    logger.info(f"Emergency Delaunay surface: {surface_mesh.n_faces} faces")
+                    return self.plotter.add_mesh(
+                        surface_mesh,
+                        style='surface',
+                        color=color,
+                        opacity=1.0,
+                        show_edges=False
+                    )
+                except Exception as delaunay_error:
+                    logger.error(f"All surface creation methods failed: {delaunay_error}")
+                    raise ValueError(f"Cannot create solid surface for zone {zone_name} - no point clouds allowed")
