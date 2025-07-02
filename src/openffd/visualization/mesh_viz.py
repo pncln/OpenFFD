@@ -790,3 +790,52 @@ def visualize_mesh_with_patches_pyvista(
             logger.info(f"Used {parallel_config.max_workers} workers")
         else:
             logger.info("Used auto-detected number of workers")
+
+
+def create_mesh_plot(
+    points: np.ndarray,
+    faces: Optional[np.ndarray] = None,
+    title: str = "Mesh Visualization",
+    point_size: float = 2.0,
+    figsize: Tuple[int, int] = (10, 8),
+    save_path: Optional[str] = None
+) -> plt.Figure:
+    """Create a basic mesh plot for benchmarking purposes.
+    
+    Args:
+        points: Array of point coordinates with shape (n, 3)
+        faces: Optional array of face connectivity 
+        title: Plot title
+        point_size: Size of points
+        figsize: Figure size tuple
+        save_path: Optional path to save the figure
+        
+    Returns:
+        Matplotlib figure object
+    """
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot points
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], 
+              s=point_size, alpha=0.6)
+    
+    # Plot faces if provided
+    if faces is not None and len(faces) > 0:
+        # Add triangular faces
+        try:
+            poly3d = [[points[face] for face in faces[:min(1000, len(faces))]]]
+            ax.add_collection3d(Poly3DCollection(poly3d[0], alpha=0.3, facecolor='lightblue'))
+        except Exception as e:
+            logger.warning(f"Could not add faces to plot: {e}")
+    
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y') 
+    ax.set_zlabel('Z')
+    ax.set_title(title)
+    
+    # Save if requested
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+    return fig

@@ -422,7 +422,7 @@ class FFDVisualizationWidget(QWidget):
                 self.plotter.add_mesh(line, color='red', line_width=2)
                 
             # Add plot title
-            self.plotter.add_text(f"FFD Control Box ({nx}×{ny}×{nz})\n{len(control_points)} control points", font_size=12)
+            # self.plotter.add_text(f"FFD Control Box ({nx}×{ny}×{nz})\n{len(control_points)} control points", font_size=12)
             
         except Exception as e:
             logger.error(f"Error creating proper grid visualization: {e}")

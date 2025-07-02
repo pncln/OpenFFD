@@ -182,7 +182,7 @@ class FFDPanel(QWidget):
         
         # Margin
         self.h_margin = QDoubleSpinBox()
-        self.h_margin.setRange(0.0, 0.5)
+        self.h_margin.setRange(0.0, 10)
         self.h_margin.setValue(0.05)
         self.h_margin.setSingleStep(0.01)
         self.h_margin.setToolTip("Margin around mesh for control box")
