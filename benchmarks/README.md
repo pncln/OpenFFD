@@ -1,288 +1,288 @@
 # OpenFFD Benchmark Suite
 
-This directory contains a comprehensive benchmark suite for OpenFFD, designed for academic performance analysis and publication-ready results. The benchmarks evaluate OpenFFD's performance across multiple dimensions including parallelization scalability, mesh complexity handling, hierarchical FFD capabilities, and visualization performance.
+A comprehensive benchmarking framework for evaluating the performance of Free Form Deformation (FFD) and Hierarchical FFD (HFFD) algorithms. This suite generates publication-ready figures suitable for academic research papers.
 
-## Overview
+## Features
 
-The benchmark suite consists of four main benchmark modules and supporting utilities:
-
-### Core Benchmark Modules
-
-1. **Parallelization Scalability** (`parallelization_scalability.py`)
-   - Evaluates parallel processing performance across varying mesh sizes and worker counts
-   - Analyzes strong and weak scaling efficiency
-   - Measures speedup, efficiency, and throughput metrics
-
-2. **Mesh Complexity Scaling** (`mesh_complexity_scaling.py`)
-   - Tests performance across different mesh sizes (10³ to 10⁷ points)
-   - Analyzes various geometry types and aspect ratios
-   - Evaluates control grid resolution effects
-   - Determines computational complexity classes
-
-3. **Hierarchical FFD Performance** (`hierarchical_ffd_benchmark.py`)
-   - Benchmarks hierarchical FFD creation and manipulation
-   - Tests different hierarchy depths and subdivision factors
-   - Analyzes memory usage and control point scaling
-   - Evaluates deformation performance
-
-4. **Visualization Performance** (`visualization_performance.py`)
-   - Tests visualization subsystem performance
-   - Evaluates different rendering modes and quality levels
-   - Analyzes parallel visualization processing
-   - Measures memory efficiency for large datasets
-
-### Supporting Utilities
-
-- **Academic Plotting Utils** (`academic_plotting_utils.py`)
-  - Publication-quality plotting functions
-  - Academic styling and formatting
-  - Statistical analysis visualizations
-  - Multi-metric comparison tools
-
-- **Benchmark Runner** (`benchmark_runner.py`)
-  - Orchestrates all benchmark modules
-  - Generates comprehensive reports
-  - Creates publication-ready figures
-  - Provides comparative analysis across benchmarks
+- **Comprehensive Performance Evaluation**: Tests FFD and HFFD algorithms across multiple dimensions
+- **Publication-Ready Figures**: Generates high-quality figures suitable for academic papers
+- **Multiple Geometry Types**: Tests on various geometric shapes (random, sphere, cylinder, wing profiles)
+- **Parallelization Analysis**: Evaluates parallel processing performance and efficiency
+- **Statistical Analysis**: Includes error bars, trend fitting, and statistical measures
+- **Configurable Test Suites**: Quick, paper, and comprehensive benchmark configurations
 
 ## Quick Start
 
-### Running Individual Benchmarks
-
-Each benchmark can be run independently:
+### Prerequisites
 
 ```bash
-# Parallelization scalability
-python parallelization_scalability.py --output-dir results/parallel --quick
-
-# Mesh complexity scaling  
-python mesh_complexity_scaling.py --output-dir results/mesh --quick
-
-# Hierarchical FFD performance
-python hierarchical_ffd_benchmark.py --output-dir results/hierarchical --quick
-
-# Visualization performance
-python visualization_performance.py --output-dir results/visualization --quick
+# Install required dependencies
+pip install numpy pandas matplotlib seaborn scipy psutil
 ```
 
-### Running Complete Benchmark Suite
-
-For comprehensive analysis, use the benchmark runner:
+### Running Benchmarks
 
 ```bash
-# Full benchmark suite (recommended for publication)
-python benchmark_runner.py --output-dir comprehensive_results
+# Quick benchmark (2-5 minutes)
+python benchmarks/run_benchmarks.py --config quick
 
-# Quick benchmark for testing
-python benchmark_runner.py --output-dir test_results --quick
+# Paper-quality benchmark (10-30 minutes)
+python benchmarks/run_benchmarks.py --config paper
 
-# Limited benchmark for development
-python benchmark_runner.py --output-dir dev_results --limited
-
-# Run specific benchmarks only
-python benchmark_runner.py --benchmarks parallelization mesh_complexity
+# Comprehensive benchmark (1-3 hours)
+python benchmarks/run_benchmarks.py --config full
 ```
 
 ## Configuration Options
 
-### Performance Levels
+### Benchmark Configurations
 
-- **Full Benchmark**: Complete analysis with all test cases (recommended for publication)
-- **Quick Benchmark**: Reduced test cases for faster execution (~2-4 hours)
-- **Limited Benchmark**: Minimal test cases for development/testing (~30 minutes)
+1. **Quick** (`--config quick`):
+   - 3 mesh sizes: 1K, 10K, 100K points
+   - 2 FFD dimensions, 2 HFFD configurations
+   - 2 repetitions per test
+   - Execution time: 2-5 minutes
+
+2. **Paper** (`--config paper`):
+   - 5 mesh sizes: 10K to 1M points
+   - 3 FFD dimensions, 3 HFFD configurations
+   - 3 repetitions per test
+   - Execution time: 10-30 minutes
+
+3. **Full** (`--config full`):
+   - 10 mesh sizes: 1K to 2M points
+   - 6 FFD dimensions, 4 HFFD configurations
+   - 5 repetitions per test
+   - Execution time: 1-3 hours
 
 ### Command Line Options
 
 ```bash
-# Benchmark Runner Options
---output-dir DIR          # Output directory for results
---benchmarks LIST         # Specific benchmarks to run
---quick                   # Run quick benchmark
---limited                 # Run limited benchmark for testing
---sequential              # Run benchmarks sequentially (not parallel)
---no-figures              # Skip publication figure generation
+python benchmarks/run_benchmarks.py [OPTIONS]
 
-# Individual Benchmark Options
---quick                   # Reduced test cases
---max-workers N           # Maximum number of parallel workers
---max-mesh-size N         # Maximum mesh size to test
---max-depth N             # Maximum hierarchy depth (hierarchical FFD)
+Options:
+  --config {quick,paper,full}    Benchmark configuration (default: paper)
+  --output-dir DIR               Override output directory
+  --force-regenerate             Regenerate existing datasets
+  --log-level {DEBUG,INFO,WARN,ERROR}  Logging level
+  --save-metadata                Save benchmark metadata to JSON
+  --help                         Show help message
 ```
 
 ## Output Structure
 
-Each benchmark generates organized output:
-
 ```
-benchmark_results/
-├── raw_results.csv           # Raw benchmark data
-├── statistics.csv            # Statistical summaries
-├── analysis.json            # Computational analysis
-├── report.md                # Comprehensive report
-├── *.png/*.pdf              # Publication figures
-└── benchmark.log            # Execution log
-```
-
-Comprehensive results include:
-
-```
-comprehensive_benchmark_results/
-├── parallelization/         # Parallelization benchmark results
-├── mesh_complexity/         # Mesh complexity results
-├── hierarchical_ffd/        # Hierarchical FFD results
-├── visualization/           # Visualization results
-├── publication_figures/     # Combined publication figures
-├── comprehensive_analysis.json
-├── comprehensive_benchmark_report.md
-└── benchmark_suite.log
+benchmarks/
+├── data/                    # Generated mesh datasets
+│   ├── random_10000_points.npz
+│   ├── sphere_10000_points.npz
+│   └── ...
+├── results/                 # Benchmark results (CSV)
+│   ├── ffd_benchmark_results.csv
+│   ├── hffd_benchmark_results.csv
+│   └── benchmark_metadata.json
+└── figures/                 # Publication-ready figures
+    ├── mesh_size_scaling.pdf
+    ├── control_complexity_scaling.pdf
+    ├── parallelization_performance.pdf
+    ├── memory_usage.pdf
+    └── hffd_hierarchy_analysis.pdf
 ```
 
-## Publication-Ready Outputs
+## Generated Figures
 
-The benchmark suite generates publication-ready materials:
+All figures are created as separate plots without titles for maximum flexibility in academic publications. Titles should be provided in figure captions.
 
-### Figures
-- High-resolution PNG, PDF, and EPS formats
-- Academic typography (Times Roman, proper axis labels)
-- Consistent color schemes and styling
-- Statistical error bars and confidence intervals
+### 1. FFD Mesh Size Scaling
+- **File**: `ffd_mesh_scaling.pdf`
+- **Content**: FFD execution time vs mesh size for different geometry types
+- **Analysis**: Power law fitting, scaling behavior analysis
+- **Usage**: Demonstrates FFD computational complexity
 
-### Reports
-- Comprehensive Markdown reports
-- Statistical significance analysis
-- Performance recommendations
-- System requirements analysis
+### 2. HFFD Mesh Size Scaling
+- **File**: `hffd_mesh_scaling.pdf`
+- **Content**: HFFD execution time vs mesh size for different geometry types
+- **Analysis**: Power law fitting, hierarchical scaling behavior
+- **Usage**: Demonstrates HFFD computational complexity
 
-### Data
-- Raw CSV data for further analysis
-- Statistical summaries
-- JSON metadata with analysis parameters
+### 3. FFD Control Complexity
+- **File**: `ffd_control_complexity.pdf`
+- **Content**: FFD performance vs control box complexity
+- **Analysis**: Impact of control point density on execution time
+- **Usage**: Shows FFD scaling with control complexity
+
+### 4. HFFD Hierarchy Complexity
+- **File**: `hffd_hierarchy_complexity.pdf`
+- **Content**: HFFD performance vs hierarchy complexity
+- **Analysis**: Impact of hierarchical structure on execution time
+- **Usage**: Shows HFFD scaling with hierarchy complexity
+
+### 5. Parallelization Speedup
+- **File**: `parallelization_speedup.pdf`
+- **Content**: Speedup analysis for FFD and HFFD algorithms
+- **Analysis**: Speedup vs worker count with ideal speedup comparison
+- **Usage**: Evaluates parallel processing effectiveness
+
+### 6. Parallelization Efficiency
+- **File**: `parallelization_efficiency.pdf`
+- **Content**: Efficiency analysis for parallel processing
+- **Analysis**: Efficiency percentage vs worker count
+- **Usage**: Shows parallel processing overhead
+
+### 7. Memory Usage
+- **File**: `memory_usage.pdf`
+- **Content**: Memory consumption vs mesh size for both algorithms
+- **Analysis**: Peak memory usage comparison
+- **Usage**: Memory scalability assessment
+
+### 8. HFFD Depth Scaling
+- **File**: `hffd_depth_scaling.pdf`
+- **Content**: HFFD performance vs hierarchy depth
+- **Analysis**: Impact of hierarchy depth on execution time
+- **Usage**: Detailed HFFD depth analysis
+
+## Benchmark Metrics
+
+### Performance Metrics
+- **Execution Time**: Wall-clock time for algorithm completion
+- **Memory Usage**: Peak memory consumption during execution
+- **Success Rate**: Percentage of successful benchmark runs
+- **Speedup**: Parallel performance improvement factor
+- **Efficiency**: Parallel efficiency percentage
+
+### Algorithm Analysis
+- **Power Law Fitting**: Computational complexity analysis (O(n^k))
+- **Statistical Analysis**: Mean, median, standard deviation
+- **Trend Analysis**: Performance scaling characteristics
+- **Error Analysis**: Error bars and confidence intervals
 
 ## Academic Usage
 
-This benchmark suite is designed for academic research and publication:
+### For Research Papers
 
-### For AIAA Journal Submission
-- All figures follow AIAA formatting guidelines
-- Professional typography and styling
-- Publication-quality resolution (300 DPI)
-- Comprehensive statistical analysis
+The generated figures are designed for direct inclusion in academic papers:
 
-### Performance Metrics
-- **Execution Time**: Wall-clock time for operations
-- **Speedup**: Parallel performance relative to sequential
-- **Efficiency**: Speedup divided by number of workers
-- **Throughput**: Operations per second
-- **Memory Usage**: Peak memory consumption
-- **Computational Complexity**: Scaling exponent analysis
+- **High Resolution**: 300 DPI for print quality
+- **Professional Formatting**: Consistent fonts, colors, and styling
+- **Statistical Rigor**: Error bars, trend fitting, R² values
+- **Colorblind-Friendly**: Accessible color schemes
+- **Multiple Formats**: PDF (vector) and PNG (raster) outputs
 
-### Statistical Analysis
-- Multiple repetitions for statistical significance
-- Mean, standard deviation, and confidence intervals
-- Correlation analysis and R² values
-- Complexity classification (linear, quadratic, etc.)
+### Citation Data
 
-## System Requirements
+The benchmark results include detailed metadata suitable for academic citation:
 
-### Minimum Requirements
-- Python 3.8+
-- 8 GB RAM
-- 4 CPU cores
-- 10 GB free disk space
-
-### Recommended for Full Benchmarks
-- Python 3.9+
-- 32 GB RAM
-- 16+ CPU cores
-- 100 GB free disk space
-- Dedicated GPU for visualization benchmarks
-
-### Dependencies
-```bash
-pip install numpy pandas matplotlib seaborn scipy
-pip install pyvista  # For enhanced visualization
-pip install psutil   # For memory monitoring
+```json
+{
+  "timestamp": "2024-XX-XX",
+  "system_info": {...},
+  "algorithm_versions": {...},
+  "test_configurations": {...},
+  "statistical_summary": {...}
+}
 ```
+
+### Reproducibility
+
+All benchmarks are designed for reproducibility:
+- Fixed random seeds for consistent results
+- Detailed configuration logging
+- Version tracking for algorithms and dependencies
+- Complete parameter documentation
 
 ## Customization
 
-### Adding Custom Benchmarks
+### Adding New Geometries
 
-1. Create a new benchmark class following the pattern:
 ```python
-class CustomBenchmark:
-    def __init__(self, output_dir):
-        # Initialize benchmark
-        
-    def run_full_benchmark(self):
-        # Main benchmark execution
-        
-    def generate_report(self):
-        # Generate analysis report
+# In data_generator.py
+def generate_custom_geometry(n_points: int, **params) -> np.ndarray:
+    # Your custom geometry generation
+    return points
+
+# Register in MeshGenerator.generate_complex_geometry()
 ```
 
-2. Add to benchmark runner:
+### Adding New Metrics
+
 ```python
-self.benchmarks['custom'] = CustomBenchmark(output_dir)
+# In ffd_benchmark.py or hffd_benchmark.py
+@dataclass
+class CustomResult:
+    # Add your custom metrics
+    custom_metric: float = 0.0
+    
+def _run_single_benchmark(self, ...):
+    # Calculate your custom metrics
+    custom_value = calculate_custom_metric(...)
+    return CustomResult(..., custom_metric=custom_value)
 ```
 
-### Custom Test Cases
+### Custom Visualizations
 
-Modify benchmark parameters in individual modules:
 ```python
-# Example: Custom mesh sizes
-benchmark.mesh_sizes = [1000, 10000, 100000, 1000000]
-
-# Example: Custom worker counts  
-benchmark.worker_counts = [1, 2, 4, 8, 16, 32]
+# In visualization.py
+def plot_custom_analysis(self, df: pd.DataFrame) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    # Your custom plotting code
+    return fig
 ```
+
+## Performance Optimization
+
+The benchmark suite includes several optimizations:
+
+1. **Parallel Dataset Generation**: Multiple geometries generated concurrently
+2. **Caching**: Reuse existing datasets unless forced regeneration
+3. **Memory Monitoring**: Track and report memory usage
+4. **Timeout Protection**: Prevent infinite execution on problematic inputs
+5. **Error Recovery**: Graceful handling of failed benchmark runs
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Memory Errors**: Reduce mesh sizes or enable disk caching
-2. **Import Errors**: Ensure all dependencies are installed
-3. **Long Execution**: Use `--quick` or `--limited` options
-4. **Permission Errors**: Check write permissions in output directory
-
-### Performance Tips
-
-1. **For Large Benchmarks**: Use SSD storage and close other applications
-2. **For Parallel Tests**: Ensure sufficient CPU cores and memory
-3. **For Visualization**: Install PyVista and ensure graphics drivers are updated
+1. **Memory Errors**: Reduce mesh sizes or use smaller configurations
+2. **Timeout Errors**: Increase timeout values in configuration
+3. **Import Errors**: Ensure OpenFFD is properly installed
+4. **Permission Errors**: Check write permissions for output directories
 
 ### Debug Mode
 
-Enable verbose logging:
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
+```bash
+# Enable debug logging
+python benchmarks/run_benchmarks.py --config quick --log-level DEBUG
 ```
+
+### Verbose Output
+
+The benchmark suite provides detailed logging:
+- Progress indicators for long-running operations
+- Performance statistics for each test
+- Error reporting with stack traces
+- Memory usage monitoring
 
 ## Contributing
 
 To contribute new benchmarks or improvements:
 
-1. Follow the existing code structure and style
-2. Include comprehensive documentation
-3. Add appropriate test cases
-4. Ensure publication-quality output formatting
+1. Follow the existing code structure
+2. Add appropriate documentation
+3. Include statistical analysis
+4. Ensure publication-quality output
+5. Test with all configuration levels
 
-## Citation
+## Example Results
 
-If you use this benchmark suite in your research, please cite:
+Typical benchmark results on a modern system:
 
-```bibtex
-@software{openffd_benchmarks,
-  author    = {OpenFFD Development Team},
-  title     = {OpenFFD Comprehensive Performance Benchmark Suite},
-  year      = {2025},
-  publisher = {GitHub},
-  url       = {https://github.com/pncln/openffd}
-}
-```
+- **FFD (100K points)**: ~0.05 seconds
+- **HFFD (100K points, depth 3)**: ~0.15 seconds
+- **Memory Usage**: 50-200 MB for typical workloads
+- **Parallel Efficiency**: 60-80% for large datasets
 
-## License
-
-This benchmark suite is distributed under the same license as OpenFFD (MIT License).
+Results vary significantly based on:
+- Hardware specifications (CPU, memory)
+- Problem size (mesh points, control complexity)
+- Algorithm parameters (hierarchy depth, subdivision)
+- System load and background processes

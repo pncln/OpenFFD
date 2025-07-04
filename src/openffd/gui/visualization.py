@@ -24,6 +24,10 @@ import pyvistaqt
 from pyvistaqt import QtInteractor
 import pyvista as pv
 
+# Configure PyVista for thread safety
+pv.OFF_SCREEN = False
+pv.BUILDING_GALLERY = False
+
 # Import the existing CLI visualization logic
 from openffd.visualization.ffd_viz import visualize_ffd_pyvista
 from openffd.visualization.mesh_viz import visualize_mesh_with_patches_pyvista

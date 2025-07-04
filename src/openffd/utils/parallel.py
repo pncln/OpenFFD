@@ -8,6 +8,7 @@ of large datasets, such as mesh points and control points.
 import logging
 import multiprocessing as mp
 import os
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 # Type variables for generic functions
 T = TypeVar('T')
 R = TypeVar('R')
+
+# Thread-local storage to track nested parallelization
+_parallel_context = threading.local()
 
 
 class ParallelConfig:
@@ -35,7 +39,7 @@ class ParallelConfig:
         method: str = "process",
         max_workers: Optional[int] = None,
         chunk_size: Optional[int] = None,
-        threshold: int = 100000,  # Increased threshold to avoid overhead with smaller datasets
+        threshold: int = 500000,  # Much higher threshold to avoid parallelization overhead
     ):
         """Initialize parallel processing configuration.
         
@@ -66,8 +70,12 @@ def is_parallelizable(data_size: int, config: Optional[ParallelConfig] = None) -
     if config is None:
         config = ParallelConfig()
     
+    # Check if we're already in a parallel context to prevent nested parallelization
+    if hasattr(_parallel_context, 'in_parallel') and _parallel_context.in_parallel:
+        return False
+    
     # Early optimization: don't parallelize very small datasets regardless of config
-    if data_size < 10000:  # Hard minimum threshold to avoid overhead
+    if data_size < 100000:  # Much higher minimum threshold to avoid overhead
         return False
     
     # Only parallelize if enabled and data size exceeds threshold
@@ -91,13 +99,13 @@ def get_optimal_chunk_size(total_size: int, target_chunks: int = None) -> int:
         # Use a reasonable number of chunks based on CPU count
         cpu_count = mp.cpu_count()
         # Use fewer chunks for smaller datasets to reduce overhead
-        if total_size < 1000000:  # 1M elements
-            target_chunks = max(2, min(4, cpu_count))  # Use 2-4 chunks for small datasets
+        if total_size < 5000000:  # 5M elements
+            target_chunks = max(2, min(4, cpu_count))  # Use 2-4 chunks for smaller datasets
         else:
-            target_chunks = min(16, cpu_count)  # Cap at 16 to avoid excessive overhead
+            target_chunks = min(8, cpu_count)  # Cap at 8 to avoid excessive overhead
     
     # Calculate base chunk size with a minimum to avoid overhead of too many small chunks
-    chunk_size = max(10000, total_size // target_chunks)
+    chunk_size = max(50000, total_size // target_chunks)
     
     return chunk_size
 
@@ -176,7 +184,7 @@ class ParallelExecutor:
             return []
             
         # Fall back to serial execution if parallel processing is disabled or dataset is too small
-        if not self.config.enabled or len(items) < self.config.threshold:
+        if not self.config.enabled or not is_parallelizable(len(items), self.config):
             return [func(item, **kwargs) for item in items]
         
         # Calculate chunk size if not specified
@@ -204,6 +212,9 @@ class ParallelExecutor:
         # Process chunks in parallel
         start_time = time.time()
         try:
+            # Mark that we're entering a parallel context
+            _parallel_context.in_parallel = True
+            
             with executor_class(max_workers=max_workers) as executor:
                 # Use simpler, more efficient executor.map pattern
                 chunk_results = list(executor.map(process_chunk, chunks))
@@ -222,6 +233,9 @@ class ParallelExecutor:
             # Fall back to sequential execution if parallel fails
             logger.info("Falling back to sequential execution due to error")
             return [func(item, **kwargs) for item in items]
+        finally:
+            # Clear parallel context when exiting
+            _parallel_context.in_parallel = False
 
 
 def process_array_in_chunks(
