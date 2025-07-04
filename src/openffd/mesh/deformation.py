@@ -459,23 +459,30 @@ class MeshDeformationEngine:
         Returns:
             Performance statistics
         """
+        def safe_stats(data):
+            """Safely compute statistics for potentially empty arrays."""
+            if len(data) == 0:
+                return {'mean': 0.0, 'std': 0.0, 'min': 0.0, 'max': 0.0}
+            return {
+                'mean': float(np.mean(data)),
+                'std': float(np.std(data)),
+                'min': float(np.min(data)),
+                'max': float(np.max(data))
+            }
+        
+        def safe_stats_partial(data):
+            """Safely compute partial statistics for potentially empty arrays."""
+            if len(data) == 0:
+                return {'mean': 0.0, 'max': 0.0}
+            return {
+                'mean': float(np.mean(data)),
+                'max': float(np.max(data))
+            }
+        
         return {
-            'deformation_times': {
-                'mean': np.mean(self.deformation_times),
-                'std': np.std(self.deformation_times),
-                'min': np.min(self.deformation_times),
-                'max': np.max(self.deformation_times)
-            },
-            'quality_check_times': {
-                'mean': np.mean(self.quality_check_times),
-                'std': np.std(self.quality_check_times),
-                'min': np.min(self.quality_check_times),
-                'max': np.max(self.quality_check_times)
-            },
-            'memory_usage': {
-                'mean': np.mean(self.memory_usage),
-                'max': np.max(self.memory_usage)
-            },
+            'deformation_times': safe_stats(self.deformation_times),
+            'quality_check_times': safe_stats(self.quality_check_times),
+            'memory_usage': safe_stats_partial(self.memory_usage),
             'total_operations': len(self.deformation_times),
             'quality_trend': [report.validity_percentage for report in self.quality_history]
         }

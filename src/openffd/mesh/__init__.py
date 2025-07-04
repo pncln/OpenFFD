@@ -32,14 +32,14 @@ from .deformation import (
 from .quality import (
     MeshQualityAnalyzer,
     QualityThresholds,
-    ElementType,
-    VTKCellType
+    ElementType
 )
 
 from .formats import (
     MeshData,
     MeshFormat,
     MeshFormatRegistry,
+    VTKCellType,
     read_mesh,
     write_mesh,
     convert_mesh,
