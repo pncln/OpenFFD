@@ -14,7 +14,6 @@ import os
 import shutil
 import subprocess
 import numpy as np
-import pandas as pd
 from typing import Dict, List, Optional, Union, Any, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,11 +22,24 @@ import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import multiprocessing as mp
-import psutil
 import time
 
-from .base import CFDConfig, CFDResults
-from .openfoam import OpenFOAMConfig, SimulationResults, FieldData
+# Optional dependencies
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    pd = None
+    HAS_PANDAS = False
+
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    psutil = None
+    HAS_PSUTIL = False
+
+from ..solvers.openfoam import OpenFOAMConfig, SimulationResults, FieldData
 
 logger = logging.getLogger(__name__)
 

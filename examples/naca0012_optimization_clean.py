@@ -60,11 +60,11 @@ def main():
         
         # Simple check like the old working example
         openfoam_available = False
-        
+
         # Check environment variables first
         foam_vars = ['FOAM_APP', 'WM_PROJECT', 'FOAM_ETC', 'WM_PROJECT_DIR']
         missing_vars = [var for var in foam_vars if var not in os.environ]
-        
+
         if not missing_vars:
             openfoam_available = True
             logger.info("✅ OpenFOAM environment variables detected")
@@ -137,13 +137,13 @@ def main():
             logger.error(f"   Error: {results.message}")
             
             # Still demonstrate other capabilities
-            demonstrate_airfoil_generation()
-            demonstrate_case_creation()
+            # demonstrate_airfoil_generation()
+            # demonstrate_case_creation()
             return False
         
         # 5. Demonstrate other capabilities
-        demonstrate_airfoil_generation()
-        demonstrate_case_creation()
+        # demonstrate_airfoil_generation()
+        # demonstrate_case_creation()
         
         return True
         

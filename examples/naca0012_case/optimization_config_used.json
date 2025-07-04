@@ -1,0 +1,115 @@
+{
+  "case_type": "airfoil",
+  "solver": "simpleFoam",
+  "physics": "incompressible_flow",
+  "objectives": [
+    {
+      "name": "drag_coefficient",
+      "weight": 1.0,
+      "target": null,
+      "constraint_type": null,
+      "constraint_value": null,
+      "patches": [
+        "airfoil"
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "lift_coefficient",
+      "weight": 0.0,
+      "target": null,
+      "constraint_type": null,
+      "constraint_value": null,
+      "patches": [
+        "airfoil"
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "ffd_config": {
+    "control_points": [
+      8,
+      6,
+      2
+    ],
+    "domain": "auto",
+    "ffd_type": "ffd",
+    "basis_functions": "bernstein",
+    "order": 3,
+    "constraints": {}
+  },
+  "optimization": {
+    "max_iterations": 50,
+    "tolerance": 1e-06,
+    "algorithm": "slsqp",
+    "step_size": 0.001,
+    "parallel": false,
+    "restart": false,
+    "history_file": "optimization_history.json"
+  },
+  "boundaries": {
+    "inlet": {
+      "U": {
+        "type": "fixedValue",
+        "value": "uniform (30 0 0)"
+      },
+      "p": {
+        "type": "zeroGradient"
+      }
+    },
+    "outlet": {
+      "U": {
+        "type": "zeroGradient"
+      },
+      "p": {
+        "type": "fixedValue",
+        "value": "uniform 0"
+      }
+    },
+    "airfoil": {
+      "U": {
+        "type": "fixedValue",
+        "value": "uniform (0 0 0)"
+      },
+      "p": {
+        "type": "zeroGradient"
+      }
+    },
+    "farfield": {
+      "U": {
+        "type": "fixedValue",
+        "value": "uniform (30 0 0)"
+      },
+      "p": {
+        "type": "zeroGradient"
+      }
+    }
+  },
+  "constants": {
+    "magUInf": 30.0,
+    "rho": 1.225,
+    "mu": 1.8e-05,
+    "chord": 1.0
+  },
+  "mesh_config": {
+    "cell_count_target": 50000,
+    "boundary_layer_thickness": 0.001,
+    "wake_refinement": true
+  },
+  "post_processing": {
+    "force_calculation": true,
+    "residual_monitoring": true,
+    "field_sampling": [
+      "U",
+      "p"
+    ]
+  }
+}
