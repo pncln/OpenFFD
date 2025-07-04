@@ -1,0 +1,86 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2112                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     simpleFoam;
+
+startFrom       latestTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         500;
+
+deltaT          1;
+
+writeControl    timeStep;
+
+writeInterval   50;
+
+purgeWrite      3;
+
+writeFormat     ascii;
+
+writePrecision  8;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+functions
+{
+    forces
+    {
+        type            forces;
+        libs            ("libforces.so");
+        writeControl    timeStep;
+        writeInterval   1;
+        
+        patches         (airfoil);
+        rho             rhoInf;
+        rhoInf          1.225;
+        CofR            (0.25 0 0);    // Quarter chord
+        
+        log             true;
+    }
+    
+    forceCoeffs
+    {
+        type            forceCoeffs;
+        libs            ("libforces.so");
+        writeControl    timeStep;
+        writeInterval   1;
+        
+        patches         (airfoil);
+        rho             rhoInf;
+        rhoInf          1.225;
+        liftDir         (0 1 0);
+        dragDir         (1 0 0);
+        CofR            (0.25 0 0);    // Quarter chord
+        pitchAxis       (0 0 1);
+        magUInf         50;
+        lRef            1;              // Chord length
+        Aref            1;              // Reference area per unit span
+        
+        log             true;
+    }
+}
+
+// ************************************************************************* //

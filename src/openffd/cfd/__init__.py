@@ -52,6 +52,18 @@ from .utilities import (
     ResultsExtractor
 )
 
+from .optimization import (
+    OptimizationManager,
+    OptimizationConfig,
+    OptimizationResults,
+    AirfoilGenerator,
+    OpenFOAMCaseBuilder,
+    ForceExtractor,
+    EnvironmentManager,
+    optimize_naca0012_airfoil,
+    create_naca_airfoil_case
+)
+
 __all__ = [
     # Core OpenFOAM functionality
     'OpenFOAMSolver',
@@ -88,5 +100,16 @@ __all__ = [
     'FieldProcessor',
     'PostProcessor',
     'ParallelManager',
-    'ResultsExtractor'
+    'ResultsExtractor',
+    
+    # Optimization
+    'OptimizationManager',
+    'OptimizationConfig',
+    'OptimizationResults',
+    'AirfoilGenerator',
+    'OpenFOAMCaseBuilder',
+    'ForceExtractor',
+    'EnvironmentManager',
+    'optimize_naca0012_airfoil',
+    'create_naca_airfoil_case'
 ]
