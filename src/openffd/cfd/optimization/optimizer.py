@@ -193,9 +193,20 @@ class UniversalOptimizer:
         else:
             n_vars = 24  # Default for 8x6x2 grid
         
-        # Initialize to zero (no deformation)
-        design_vars = np.zeros(n_vars)
+        # Check for user-specified initial design variables
+        if hasattr(self.config.optimization, 'initial_design_vars') and self.config.optimization.initial_design_vars:
+            initial_vars = np.array(self.config.optimization.initial_design_vars)
+            if len(initial_vars) == n_vars:
+                print(f"Using user-specified initial design variables: {initial_vars}")
+                return initial_vars
+            else:
+                print(f"Initial design vars length {len(initial_vars)} != {n_vars}, using random initialization")
         
+        # Initialize with small random perturbations for real optimization
+        np.random.seed(42)  # Reproducible results
+        design_vars = np.random.normal(0.0, 0.01, n_vars)  # Small random perturbations
+        
+        print(f"Initialized {n_vars} design variables with random perturbations: {design_vars}")
         return design_vars
     
     def _optimize_slsqp(self, initial_vars: np.ndarray) -> Dict[str, Any]:
@@ -226,7 +237,6 @@ class UniversalOptimizer:
             options={
                 'maxiter': self.config.optimization.max_iterations,
                 'ftol': self.config.optimization.tolerance * 0.1,  # Reduced function tolerance
-                'gtol': 1e-8,  # Gradient tolerance
                 'eps': 1e-8,   # Step size for finite difference
                 'disp': True
             }
@@ -342,11 +352,14 @@ class UniversalOptimizer:
             return abs(value - target)
     
     def _setup_bounds(self, design_vars: np.ndarray) -> List[tuple]:
-        """Set up bounds for design variables."""
-        # Default bounds: allow ±20% deformation
+        """Set up bounds for design variables for the new parametric system."""
+        # The new system uses normalized design variables (±1.0 range)
+        # which get scaled internally to physical units (±1% chord per unit)
         bounds = []
         for i in range(len(design_vars)):
-            bounds.append((-0.2, 0.2))
+            # Allow ±1.0 range for parametric variables
+            # This translates to ±1% chord deformation in the new system
+            bounds.append((-1.0, 1.0))
         
         return bounds
     

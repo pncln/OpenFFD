@@ -47,6 +47,7 @@ class OptimizationConfig:
     parallel: bool = False
     restart: bool = False
     history_file: str = "optimization_history.json"
+    initial_design_vars: Optional[List[float]] = None
 
 
 @dataclass

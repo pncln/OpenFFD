@@ -1,0 +1,5 @@
+Iteration: 3
+Design Variables: [-1.0, -0.10081284200000001, 0.039093498000000025, -0.08005568399999999]
+Objective Value: 0.01660598
+Drag Coefficient: 0.0166059759
+Lift Coefficient: 0.00628902509

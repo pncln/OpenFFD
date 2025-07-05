@@ -2,21 +2,21 @@
   "success": true,
   "final_objective": 0.0136916139,
   "optimal_design_vars": [
-    0.0,
-    0.0,
-    0.0,
-    0.0
+    0.1,
+    -0.1,
+    0.05,
+    -0.08
   ],
   "iterations": 1,
-  "total_time": 10.208197116851807,
+  "total_time": 9.58464002609253,
   "history": [
     {
       "iteration": 1,
       "design_vars": [
-        0.0,
-        0.0,
-        0.0,
-        0.0
+        0.1,
+        -0.1,
+        0.05,
+        -0.08
       ],
       "objective_value": 0.0136916139,
       "objective_components": {

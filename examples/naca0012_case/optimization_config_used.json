@@ -47,10 +47,10 @@
     "constraints": {}
   },
   "optimization": {
-    "max_iterations": 5,
-    "tolerance": 1e-08,
+    "max_iterations": 20,
+    "tolerance": 1e-06,
     "algorithm": "slsqp",
-    "step_size": 0.1,
+    "step_size": 0.05,
     "parallel": false,
     "restart": false,
     "history_file": "optimization_history.json"

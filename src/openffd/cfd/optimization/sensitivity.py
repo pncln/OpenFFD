@@ -53,10 +53,10 @@ class SensitivityType(Enum):
 class FiniteDifferenceConfig:
     """Configuration for finite difference gradient computation."""
     method: GradientMethod = GradientMethod.FINITE_DIFFERENCE_CENTRAL
-    step_size: float = 1e-6
+    step_size: float = 0.001
     adaptive_step: bool = True
     min_step_size: float = 1e-8
-    max_step_size: float = 1e-4
+    max_step_size: float = 0.005
     step_size_factor: float = 2.0
     relative_step: bool = True
     parallel_evaluation: bool = True

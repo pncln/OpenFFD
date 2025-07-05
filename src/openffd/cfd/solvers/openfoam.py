@@ -1493,41 +1493,42 @@ RAS
     
     def _apply_ffd_deformation(self, design_vars: np.ndarray) -> Path:
         """Apply FFD-based mesh deformation to change airfoil shape."""
-        print(f"DEBUG: FFD deformation called with {len(design_vars)} design variables: {design_vars}")
         self.logger.info(f"Applying FFD deformation with {len(design_vars)} design variables")
         self.logger.info(f"Design variable values: {design_vars}")
         
         try:
-            # Initialize FFD system if not already done
-            if not hasattr(self, 'ffd_system'):
-                print("DEBUG: Initializing FFD system...")
-                from ..mesh_deformation import FFDDeformation
-                self.ffd_system = FFDDeformation(
-                    self.case_handler.case_path, 
-                    control_points=[2, 2, 1]  # Match configuration
+            # Initialize hybrid FFD system with Y-direction only movement
+            if not hasattr(self, 'hybrid_ffd_deformer'):
+                from ..mesh_deformation_hybrid import HybridFFDDeformer
+                # Get control points from configuration or use default [2,2,1]
+                control_points = getattr(self.config, 'ffd_config', {}).get('control_points', [2, 2, 1])
+                self.hybrid_ffd_deformer = HybridFFDDeformer(
+                    self.case_handler.case_path,
+                    control_points=control_points
                 )
-                print("DEBUG: FFD system initialized successfully")
-                self.logger.info("Initialized FFD deformation system")
+                self.logger.info(f"Initialized hybrid FFD system with control points {control_points} (Y-direction only)")
             
-            # Apply design variables to deform airfoil mesh
-            print("DEBUG: Applying design variables to FFD system...")
-            mesh_path = self.ffd_system.apply_design_variables(design_vars)
+            # Apply design variables to deform airfoil mesh using hybrid FFD
+            mesh_path = self.hybrid_ffd_deformer.apply_design_variables(design_vars)
             
-            print(f"DEBUG: FFD deformation completed, mesh path: {mesh_path}")
-            self.logger.info(f"FFD deformation applied successfully")
+            self.logger.info(f"Hybrid FFD mesh deformation applied successfully")
             return mesh_path
             
         except Exception as e:
-            print(f"DEBUG: FFD deformation failed with error: {e}")
-            import traceback
-            traceback.print_exc()
-            self.logger.error(f"FFD deformation failed: {e}")
-            # Fallback to original mesh
+            self.logger.error(f"Hybrid FFD deformation failed: {e}")
+            # Restore original mesh as fallback
+            if hasattr(self, 'hybrid_ffd_deformer'):
+                self.hybrid_ffd_deformer.restore_original_mesh()
             return self.case_handler.case_path / "constant" / "polyMesh"
 
     def restore_original_mesh(self) -> bool:
-        """Restore original mesh from backup."""
+        """Restore original mesh from backup using the new deformation system."""
         try:
+            # Use the hybrid FFD deformer if available
+            if hasattr(self, 'hybrid_ffd_deformer'):
+                return self.hybrid_ffd_deformer.restore_original_mesh()
+            
+            # Fallback to manual restoration
             original_mesh_dir = self.case_handler.case_path / "constant" / "polyMesh_original"
             current_mesh_dir = self.case_handler.case_path / "constant" / "polyMesh"
             

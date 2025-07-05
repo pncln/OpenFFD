@@ -109,21 +109,27 @@ class FFDDeformation:
         with open(boundary_file, 'r') as f:
             content = f.read()
         
-        # Find the walls (airfoil) boundary - handle multiline format
+        # Find the airfoil boundary - handle multiline format
+        # Try both "airfoil" and "walls" naming conventions
+        airfoil_pattern = r'airfoil\s*\{[^}]*\}'
         walls_pattern = r'walls\s*\{[^}]*\}'
+        
+        airfoil_match = re.search(airfoil_pattern, content, re.DOTALL)
         walls_match = re.search(walls_pattern, content, re.DOTALL)
         
-        if not walls_match:
-            raise ValueError("Could not find 'walls' boundary in boundary file")
+        if airfoil_match:
+            airfoil_section = airfoil_match.group(0)
+        elif walls_match:
+            airfoil_section = walls_match.group(0)
+        else:
+            raise ValueError("Could not find 'airfoil' or 'walls' boundary in boundary file")
         
-        walls_section = walls_match.group(0)
-        
-        # Extract nFaces and startFace from the walls section
-        nfaces_match = re.search(r'nFaces\s+(\d+);', walls_section)
-        startface_match = re.search(r'startFace\s+(\d+);', walls_section)
+        # Extract nFaces and startFace from the airfoil section
+        nfaces_match = re.search(r'nFaces\s+(\d+);', airfoil_section)
+        startface_match = re.search(r'startFace\s+(\d+);', airfoil_section)
         
         if not nfaces_match or not startface_match:
-            raise ValueError("Could not find nFaces or startFace in walls boundary")
+            raise ValueError("Could not find nFaces or startFace in airfoil boundary")
         
         n_faces = int(nfaces_match.group(1))
         start_face = int(startface_match.group(1))
@@ -147,27 +153,40 @@ class FFDDeformation:
                 faces_start_idx = i + 2
                 break
         
-        # Get airfoil face point indices
+        # Get airfoil face point indices  
         airfoil_point_set = set()
-        for face_idx in range(start_face, start_face + n_faces):
+        for i in range(n_faces):
+            face_idx = start_face + i
             line_idx = faces_start_idx + face_idx
             if line_idx < len(lines):
                 line = lines[line_idx].strip()
-                if line.startswith('(') and line.endswith(')'):
-                    # Extract point indices
-                    indices_str = line[1:-1]
-                    try:
-                        indices = [int(x) for x in indices_str.split()]
-                        airfoil_point_set.update(indices)
-                    except ValueError:
-                        continue
+                # OpenFOAM face format: N(p1 p2 p3 ...)
+                if '(' in line and ')' in line:
+                    # Extract point indices from parentheses
+                    paren_start = line.find('(')
+                    paren_end = line.find(')')
+                    if paren_start != -1 and paren_end != -1:
+                        indices_str = line[paren_start+1:paren_end]
+                        try:
+                            indices = [int(x) for x in indices_str.split()]
+                            airfoil_point_set.update(indices)
+                        except ValueError:
+                            continue
         
         self.airfoil_point_indices = sorted(list(airfoil_point_set))
-        self.airfoil_points = self.mesh_points[self.airfoil_point_indices]
+        
+        if len(self.airfoil_point_indices) > 0:
+            self.airfoil_points = self.mesh_points[self.airfoil_point_indices]
+        else:
+            self.airfoil_points = np.array([])
         
         self.logger.info(f"Identified {len(self.airfoil_point_indices)} airfoil boundary points")
         
         if len(self.airfoil_points) == 0:
+            print("DEBUG: No airfoil boundary points found - debugging face file format...")
+            print(f"DEBUG: Sample lines around faces_start_idx ({faces_start_idx}):")
+            for i in range(max(0, faces_start_idx-5), min(len(lines), faces_start_idx+10)):
+                print(f"  Line {i}: {lines[i][:100]}")
             raise ValueError("No airfoil boundary points found")
         
         # Log airfoil extent for verification
@@ -236,8 +255,21 @@ class FFDDeformation:
         self.logger.info(f"Applying FFD deformation with {len(design_vars)} design variables")
         self.logger.info(f"Design variable values: {design_vars}")
         
-        # Create backup if needed
+        # Create backup if needed (only once)
         self._backup_original_mesh()
+        
+        # Only restore if we have a backup and current mesh is different
+        # This prevents overwriting the user's fixed mesh
+        original_mesh_dir = self.case_path / "constant" / "polyMesh_original"
+        if original_mesh_dir.exists():
+            # Check if current mesh is deformed (has been modified)
+            current_mesh_dir = self.case_path / "constant" / "polyMesh"
+            if self._is_mesh_deformed():
+                self.restore_original_mesh()
+                self._load_mesh_points()
+        else:
+            # No backup exists yet, use current mesh as reference
+            self._load_mesh_points()
         
         # Reset control grid to original positions
         self.control_grid = self.original_control_grid.copy()
@@ -263,35 +295,77 @@ class FFDDeformation:
             self.logger.info("Created backup of original mesh")
     
     def _apply_control_point_displacements(self, design_vars: np.ndarray):
-        """Apply design variable displacements to control points."""
+        """Apply design variable displacements to control points with quality preservation."""
         nx, ny, nz = self.control_points
         
-        # Reshape design variables to control point grid
-        # For simplicity, apply Y-displacements only (normal to airfoil)
+        # Calculate scaling based on actual mesh dimensions
+        # The airfoil extends from x=-17.5 to x=17.5, giving chord_length=35
+        chord_length = 35.0  # Actual chord length in this mesh
+        adaptive_scale = chord_length * 0.00001  # 0.001% of actual chord length for safety
+        
+        # Reset control grid to original positions
+        self._setup_ffd_box()
+        self._create_control_grid()
+        
+        # Apply displacements with geometric constraints
         if len(design_vars) == nx * ny * nz:
             # Full 3D displacement
             displacements = design_vars.reshape((nx, ny, nz))
             for i in range(nx):
                 for j in range(ny):
                     for k in range(nz):
-                        # Apply displacement in Y direction (normal to airfoil)
-                        self.control_grid[i, j, k, 1] += displacements[i, j, k] * 0.1  # Scale displacement
-        else:
-            # Simplified: distribute design variables evenly
-            base_displacement = np.mean(design_vars) if len(design_vars) > 0 else 0.0
-            
-            for i in range(nx):
-                for j in range(ny):
-                    for k in range(nz):
-                        # Apply larger displacement to middle control points (airfoil center)
-                        weight = 1.0 if j > 0 else 0.5  # Reduce displacement at boundaries
-                        displacement = base_displacement * weight * 0.05  # Scale factor
+                        # Only modify Y-direction (normal to airfoil surface)
+                        # Apply smooth variation with boundary constraints
+                        edge_factor = self._get_edge_constraint_factor(i, j, nx, ny)
+                        displacement = displacements[i, j, k] * adaptive_scale * edge_factor
+                        
+                        # Clamp displacement to prevent mesh corruption
+                        max_displacement = chord_length * 0.00005  # 0.005% of actual chord maximum
+                        displacement = np.clip(displacement, -max_displacement, max_displacement)
+                        
                         self.control_grid[i, j, k, 1] += displacement
+        else:
+            # Simplified: distribute design variables with smooth variation
+            for var_idx, design_var in enumerate(design_vars):
+                if var_idx >= nx * ny * nz:
+                    break
+                    
+                i = var_idx % nx
+                j = (var_idx // nx) % ny
+                k = var_idx // (nx * ny)
+                
+                # Apply smooth displacement with constraints
+                edge_factor = self._get_edge_constraint_factor(i, j, nx, ny)
+                displacement = design_var * adaptive_scale * edge_factor
+                
+                # Clamp displacement
+                max_displacement = chord_length * 0.00005  # 0.005% of actual chord  
+                displacement = np.clip(displacement, -max_displacement, max_displacement)
+                
+                self.control_grid[i, j, k, 1] += displacement
         
-        self.logger.info("Applied control point displacements")
+        self.logger.info(f"Applied control point displacements with adaptive scaling {adaptive_scale}")
+    
+    def _get_edge_constraint_factor(self, i: int, j: int, nx: int, ny: int) -> float:
+        """Get constraint factor for edge points to preserve mesh quality."""
+        # Reduce displacement near boundaries to prevent mesh distortion
+        edge_factor_x = 1.0
+        edge_factor_y = 1.0
+        
+        # X-direction constraints (leading/trailing edge)
+        if i == 0 or i == nx - 1:
+            edge_factor_x = 0.1  # Minimal displacement at edges
+        elif i == 1 or i == nx - 2:
+            edge_factor_x = 0.5  # Reduced displacement near edges
+            
+        # Y-direction constraints (upper/lower surface)
+        if j == 0 or j == ny - 1:
+            edge_factor_y = 0.3  # Some displacement at surface boundaries
+        
+        return edge_factor_x * edge_factor_y
     
     def _deform_airfoil_points(self) -> np.ndarray:
-        """Deform airfoil boundary points using FFD."""
+        """Deform airfoil boundary points using FFD with quality preservation."""
         deformed_points = np.zeros_like(self.airfoil_points)
         
         for i, point in enumerate(self.airfoil_points):
@@ -300,12 +374,13 @@ class FFDDeformation:
             v = (point[1] - self.ffd_box['y_min']) / (self.ffd_box['y_max'] - self.ffd_box['y_min'])
             w = (point[2] - self.ffd_box['z_min']) / (self.ffd_box['z_max'] - self.ffd_box['z_min'])
             
-            # Clamp parametric coordinates
-            u = np.clip(u, 0, 1)
-            v = np.clip(v, 0, 1)
-            w = np.clip(w, 0, 1)
+            # Clamp parametric coordinates with small tolerance
+            eps = 1e-10
+            u = np.clip(u, eps, 1.0 - eps)
+            v = np.clip(v, eps, 1.0 - eps)
+            w = np.clip(w, eps, 1.0 - eps)
             
-            # Compute deformed position using trilinear interpolation
+            # Compute deformed position using high-quality trilinear interpolation
             deformed_points[i] = self._trilinear_interpolation(u, v, w)
         
         # Calculate deformation magnitude for logging
@@ -387,12 +462,24 @@ class FFDDeformation:
             if data_start_idx + i < len(lines):
                 lines[data_start_idx + i] = f"({point[0]:.6f} {point[1]:.6f} {point[2]:.6f})"
         
-        # Write updated points file
+        # Validate mesh quality before writing
+        if not self._validate_mesh_quality(deformed_airfoil_points):
+            self.logger.warning("Mesh quality validation failed, using smaller deformation")
+            # Apply reduced deformation
+            reduced_deformation = (deformed_airfoil_points + self.airfoil_points) / 2.0
+            self._update_points_in_lines(lines, self.airfoil_point_indices, reduced_deformation)
+        
+        # Write updated points file with proper formatting
         updated_content = '\n'.join(lines)
         with open(points_file, 'w') as f:
             f.write(updated_content)
         
-        self.logger.info(f"Updated mesh points file with {len(deformed_airfoil_points)} deformed airfoil points")
+        # Verify mesh integrity
+        if self._check_mesh_integrity():
+            self.logger.info(f"Successfully updated mesh with {len(deformed_airfoil_points)} deformed airfoil points")
+        else:
+            self.logger.error("Mesh integrity check failed, restoring original mesh")
+            self.restore_original_mesh()
         
         return self.case_path / "constant" / "polyMesh"
     
@@ -420,4 +507,147 @@ class FFDDeformation:
                 
         except Exception as e:
             self.logger.error(f"Failed to restore original mesh: {e}")
+            return False
+    
+    def _validate_mesh_quality(self, deformed_points: np.ndarray) -> bool:
+        """Validate mesh quality metrics."""
+        try:
+            # Check for reasonable deformation magnitudes
+            displacements = np.linalg.norm(deformed_points - self.airfoil_points, axis=1)
+            max_displacement = np.max(displacements)
+            avg_displacement = np.mean(displacements)
+            
+            # Thresholds based on actual chord length for real optimization
+            chord_length = 35.0  # Actual chord length in this mesh
+            max_allowed = chord_length * 0.05  # 5% of chord for significant shape changes
+            avg_allowed = chord_length * 0.025  # 2.5% of chord average
+            
+            if max_displacement > max_allowed:
+                self.logger.warning(f"Maximum displacement {max_displacement:.6f} exceeds threshold {max_allowed:.6f}")
+                return False
+                
+            if avg_displacement > avg_allowed:
+                self.logger.warning(f"Average displacement {avg_displacement:.6f} exceeds threshold {avg_allowed:.6f}")
+                return False
+            
+            # Check for point ordering preservation (no crossing)
+            if self._check_point_ordering(deformed_points):
+                self.logger.info(f"Mesh quality validation passed: max_disp={max_displacement:.6f}, avg_disp={avg_displacement:.6f}")
+                return True
+            else:
+                self.logger.warning("Point ordering validation failed")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Mesh quality validation error: {e}")
+            return False
+    
+    def _check_point_ordering(self, points: np.ndarray) -> bool:
+        """Check if point ordering is preserved (no crossings)."""
+        try:
+            # Check for basic geometric consistency
+            # Ensure points maintain reasonable spacing
+            min_spacing = np.inf
+            for i in range(len(points) - 1):
+                spacing = np.linalg.norm(points[i+1] - points[i])
+                min_spacing = min(min_spacing, spacing)
+            
+            # Minimum spacing threshold
+            min_allowed = 1e-6
+            if min_spacing < min_allowed:
+                self.logger.warning(f"Minimum point spacing {min_spacing:.8f} too small")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Point ordering check error: {e}")
+            return False
+    
+    def _check_mesh_integrity(self) -> bool:
+        """Check basic mesh file integrity."""
+        try:
+            mesh_dir = self.case_path / "constant" / "polyMesh"
+            required_files = ["points", "faces", "owner", "neighbour", "boundary"]
+            
+            for file_name in required_files:
+                file_path = mesh_dir / file_name
+                if not file_path.exists():
+                    self.logger.error(f"Missing mesh file: {file_name}")
+                    return False
+                    
+                # Check file is not empty
+                if file_path.stat().st_size == 0:
+                    self.logger.error(f"Empty mesh file: {file_name}")
+                    return False
+            
+            # Basic points file validation
+            points_file = mesh_dir / "points"
+            with open(points_file, 'r') as f:
+                content = f.read()
+                
+            # Check for proper OpenFOAM format
+            if "FoamFile" not in content:
+                self.logger.error("Invalid OpenFOAM points file format")
+                return False
+                
+            # Check for reasonable number of points
+            point_count = content.count('(')
+            if point_count < 1000:  # Reasonable minimum for airfoil mesh
+                self.logger.warning(f"Unusually low point count: {point_count}")
+                
+            self.logger.info("Mesh integrity check passed")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Mesh integrity check error: {e}")
+            return False
+    
+    def _update_points_in_lines(self, lines: List[str], point_indices: List[int], points: np.ndarray):
+        """Update point coordinates in file lines."""
+        try:
+            # Find data section
+            data_start_idx = None
+            for i, line in enumerate(lines):
+                if line.strip() == '(':
+                    data_start_idx = i + 1
+                    break
+            
+            if data_start_idx is None:
+                raise ValueError("Could not find data section start")
+            
+            # Update points
+            for i, point in enumerate(points):
+                if data_start_idx + point_indices[i] < len(lines):
+                    lines[data_start_idx + point_indices[i]] = f"({point[0]:.8f} {point[1]:.8f} {point[2]:.8f})"
+                    
+        except Exception as e:
+            self.logger.error(f"Error updating points in lines: {e}")
+            raise
+    
+    def _is_mesh_deformed(self) -> bool:
+        """Check if current mesh differs from original backup."""
+        try:
+            original_mesh_dir = self.case_path / "constant" / "polyMesh_original"
+            current_mesh_dir = self.case_path / "constant" / "polyMesh"
+            
+            if not original_mesh_dir.exists():
+                return False
+                
+            # Compare points files (quick check)
+            orig_points = original_mesh_dir / "points"
+            curr_points = current_mesh_dir / "points"
+            
+            if not orig_points.exists() or not curr_points.exists():
+                return False
+                
+            # Compare file sizes first (fast check)
+            if orig_points.stat().st_size != curr_points.stat().st_size:
+                return True
+                
+            # If sizes are same, assume they're the same (for performance)
+            # In a production system, you might want a more thorough check
+            return False
+            
+        except Exception:
             return False
