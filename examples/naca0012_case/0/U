@@ -16,7 +16,7 @@ FoamFile
 
 dimensions      [0 1 -1 0 0 0 0];
 
-internalField   uniform (30 0 0);
+internalField   uniform (5 0 0);
 
 boundaryField
 {
@@ -31,17 +31,7 @@ boundaryField
         type            zeroGradient;
     }
     
-    top
-    {
-        type            zeroGradient;
-    }
-    
-    bottom
-    {
-        type            zeroGradient;
-    }
-    
-    airfoil
+    walls
     {
         type            noSlip;
     }

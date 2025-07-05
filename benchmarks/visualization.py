@@ -71,21 +71,21 @@ class AcademicPlotter:
         plt.rcParams.update({
             # Figure and layout
             'figure.figsize': (8, 6),
-            'figure.dpi': 100,
+            'figure.dpi': 300,
             'savefig.dpi': 300,
             'savefig.format': 'pdf',
             'savefig.bbox': 'tight',
             'savefig.pad_inches': 0.1,
             
             # Fonts
-            'font.size': 12,
+            'font.size': 22,
             'font.family': 'serif',
             'font.serif': ['Times New Roman', 'DejaVu Serif', 'serif'],
             'mathtext.fontset': 'stix',
             
             # Axes
-            'axes.titlesize': 14,
-            'axes.labelsize': 12,
+            'axes.titlesize': 36,
+            'axes.labelsize': 30,
             'axes.linewidth': 1.0,
             'axes.grid': True,
             'axes.axisbelow': True,
@@ -99,17 +99,17 @@ class AcademicPlotter:
             'grid.alpha': 0.7,
             
             # Ticks
-            'xtick.labelsize': 10,
-            'ytick.labelsize': 10,
+            'xtick.labelsize': 20,
+            'ytick.labelsize': 20,
             'xtick.direction': 'in',
             'ytick.direction': 'in',
-            'xtick.major.size': 4,
-            'ytick.major.size': 4,
-            'xtick.minor.size': 2,
-            'ytick.minor.size': 2,
+            'xtick.major.size': 10,
+            'ytick.major.size': 10,
+            'xtick.minor.size': 5,
+            'ytick.minor.size': 5,
             
             # Legend
-            'legend.fontsize': 10,
+            'legend.fontsize': 16,
             'legend.frameon': True,
             'legend.fancybox': True,
             'legend.shadow': False,
@@ -117,8 +117,8 @@ class AcademicPlotter:
             'legend.edgecolor': 'black',
             
             # Lines and markers
-            'lines.linewidth': 2.0,
-            'lines.markersize': 6,
+            'lines.linewidth': 5.0,
+            'lines.markersize': 12,
             'lines.markeredgewidth': 0.5,
             
             # Error bars

@@ -39,7 +39,7 @@ class AirfoilCase(GenericCase):
         
         # Check boundary patches for airfoil-like names
         self._parse_boundary_patches()
-        airfoil_patch_names = ['airfoil', 'wing', 'aerofoil', 'blade', 'profile']
+        airfoil_patch_names = ['airfoil', 'wing', 'aerofoil', 'blade', 'profile', 'walls']
         
         for patch in self.boundary_patches:
             if any(name in patch['name'].lower() for name in airfoil_patch_names):
@@ -67,7 +67,7 @@ class AirfoilCase(GenericCase):
     
     def _identify_airfoil_patch(self) -> None:
         """Identify which patch represents the airfoil."""
-        airfoil_names = ['airfoil', 'wing', 'aerofoil', 'blade', 'profile', 'wall']
+        airfoil_names = ['airfoil', 'wing', 'aerofoil', 'blade', 'profile', 'wall', 'walls']
         
         for patch in self.boundary_patches:
             patch_name = patch['name'].lower()

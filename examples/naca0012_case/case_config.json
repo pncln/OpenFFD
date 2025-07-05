@@ -6,28 +6,28 @@
     {
       "name": "drag_coefficient",
       "weight": 1.0,
-      "patches": ["airfoil"],
+      "patches": ["walls"],
       "direction": [1.0, 0.0, 0.0]
     },
     {
       "name": "lift_coefficient",
       "weight": 0.0,
-      "patches": ["airfoil"],
+      "patches": ["walls"],
       "direction": [1.0, 0.0, 0.0]
     }
   ],
   "ffd_config": {
-    "control_points": [8, 6, 2],
+    "control_points": [2, 2, 1],
     "domain": "auto",
     "ffd_type": "ffd",
     "basis_functions": "bernstein",
     "order": 3
   },
   "optimization": {
-    "max_iterations": 50,
-    "tolerance": 1e-6,
+    "max_iterations": 5,
+    "tolerance": 1e-8,
     "algorithm": "slsqp",
-    "step_size": 1e-3,
+    "step_size": 0.1,
     "parallel": false,
     "restart": false,
     "history_file": "optimization_history.json"
@@ -57,7 +57,7 @@
         "value": "uniform 0"
       }
     },
-    "airfoil": {
+    "walls": {
       "U": {
         "type": "fixedValue",
         "value": "uniform (0 0 0)"

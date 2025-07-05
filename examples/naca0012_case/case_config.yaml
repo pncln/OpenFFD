@@ -5,11 +5,11 @@ physics: "incompressible_flow"
 objectives:
   - name: "drag_coefficient"
     weight: 1.0
-    patches: ["airfoil"]
+    patches: ["walls"]
     direction: [1.0, 0.0, 0.0]
   - name: "lift_coefficient"
     weight: 0.0
-    patches: ["airfoil"]
+    patches: ["walls"]
     direction: [1.0, 0.0, 0.0]
 
 ffd_config:
@@ -47,7 +47,7 @@ boundaries:
     p:
       type: "fixedValue"
       value: "uniform 0"
-  airfoil:
+  walls:
     U:
       type: "fixedValue"
       value: "uniform (0 0 0)"

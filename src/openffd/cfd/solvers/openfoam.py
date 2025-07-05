@@ -429,12 +429,18 @@ class OpenFOAMSolver(BaseSolver):
     
     def run_simulation(self, mesh_file: Optional[str] = None) -> Dict[str, Any]:
         """Run CFD simulation and return results."""
+        print(f"DEBUG: run_simulation called with mesh_file={mesh_file}")
+        
         # Always run real OpenFOAM simulation
         if not self.openfoam_config:
             raise RuntimeError("OpenFOAM configuration not initialized")
         
+        # Ensure fresh simulation by cleaning up
+        self._cleanup_time_directories(self.openfoam_config.case_directory)
+        
         self.logger.info(f"OpenFOAM available at: {self.openfoam_root}")
         self.logger.info(f"Running real CFD simulation")
+        print(f"DEBUG: About to call _run_openfoam_simulation")
         
         try:
             # Update mesh file if provided
@@ -442,10 +448,14 @@ class OpenFOAMSolver(BaseSolver):
                 self.openfoam_config.mesh_file = Path(mesh_file)
             
             # Run simulation
+            print(f"DEBUG: Calling _run_openfoam_simulation")
             results = self._run_openfoam_simulation(self.openfoam_config)
+            print(f"DEBUG: _run_openfoam_simulation returned")
             
             # Convert to universal format
-            return self._convert_results_to_universal_format(results)
+            universal_results = self._convert_results_to_universal_format(results)
+            print(f"DEBUG: Universal format conversion completed")
+            return universal_results
             
         except Exception as e:
             self.logger.error(f"Simulation failed: {e}")
@@ -585,10 +595,12 @@ class OpenFOAMSolver(BaseSolver):
     
     def _run_openfoam_simulation(self, config: 'OpenFOAMConfig') -> 'SimulationResults':
         """Run the actual OpenFOAM simulation."""
+        print(f"DEBUG: _run_openfoam_simulation entry")
         start_time = time.time()
         
         try:
             self.logger.info(f"Starting OpenFOAM simulation with {config.solver_type.value}")
+            print(f"DEBUG: Starting simulation with solver {config.solver_type.value}")
             
             # Setup case if not already done
             if not (config.case_directory / "system" / "controlDict").exists():
@@ -601,7 +613,9 @@ class OpenFOAMSolver(BaseSolver):
             
             # Run solver
             log_file = config.case_directory / f"{config.solver_type.value}.log"
+            print(f"DEBUG: About to execute solver, log file: {log_file}")
             success = self._execute_solver(config, log_file)
+            print(f"DEBUG: Solver execution completed, success: {success}")
             
             # Reconstruct parallel case
             if config.parallel_execution:
@@ -1132,9 +1146,53 @@ RAS
         except Exception as e:
             self.logger.warning(f"Failed to add function objects: {e}")
     
+    def _cleanup_time_directories(self, case_directory: Path) -> None:
+        """Clean up existing time directories to ensure fresh simulation."""
+        try:
+            self.logger.info("Performing thorough cleanup for fresh simulation")
+            
+            # Remove all numeric time directories except 0
+            removed_dirs = []
+            for item in case_directory.iterdir():
+                if item.is_dir() and item.name.replace('.', '').replace('-', '').isdigit():
+                    # Skip the initial condition directory (0)
+                    if item.name != '0':
+                        self.logger.info(f"Removing time directory: {item}")
+                        shutil.rmtree(item)
+                        removed_dirs.append(item.name)
+                        
+            # Also remove postProcessing directory to ensure fresh force data
+            post_processing = case_directory / "postProcessing"
+            if post_processing.exists():
+                self.logger.info(f"Removing postProcessing directory: {post_processing}")
+                shutil.rmtree(post_processing)
+                
+            # Force controlDict to start from time 0
+            control_dict = case_directory / "system" / "controlDict"
+            if control_dict.exists():
+                with open(control_dict, 'r') as f:
+                    content = f.read()
+                
+                # Ensure it starts from startTime, not latestTime
+                modified_content = content.replace('startFrom       latestTime;', 'startFrom       startTime;')
+                
+                with open(control_dict, 'w') as f:
+                    f.write(modified_content)
+                    
+            self.logger.info(f"Cleanup completed. Removed {len(removed_dirs)} time directories: {removed_dirs}")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to clean up time directories: {e}")
+    
     def _execute_solver(self, config: 'OpenFOAMConfig', log_file: Path) -> bool:
         """Execute OpenFOAM solver."""
+        print(f"DEBUG: _execute_solver called")
         try:
+            # Clean up existing time directories to ensure fresh run
+            print(f"DEBUG: About to cleanup time directories")
+            self._cleanup_time_directories(config.case_directory)
+            print(f"DEBUG: Cleanup completed")
+            
             # Use system environment (assume OpenFOAM is sourced)
             env = os.environ.copy()
             
@@ -1149,6 +1207,8 @@ RAS
             
             # Run solver
             self.logger.info(f"Running: {' '.join(cmd)} in {config.case_directory}")
+            self.logger.info(f"DEBUG: About to execute solver command")
+            print(f"DEBUG: Executing OpenFOAM solver: {' '.join(cmd)}")
             with open(log_file, 'w') as f:
                 process = subprocess.run(
                     cmd,
@@ -1158,6 +1218,7 @@ RAS
                     stderr=subprocess.STDOUT,
                     timeout=3600  # 1 hour timeout
                 )
+            self.logger.info(f"DEBUG: Solver execution completed with return code: {process.returncode}")
             
             success = process.returncode == 0
             if success:
@@ -1356,13 +1417,14 @@ RAS
             
             # Parse coefficients (format may vary)
             force_coeffs = ForceCoefficients()
-            if len(final_data) >= 3:
+            if len(final_data) >= 8:
                 force_coeffs.cd = float(final_data[1])  # Drag coefficient
-                force_coeffs.cl = float(final_data[3])  # Lift coefficient (column 3 from log)
-                if len(final_data) >= 6:
-                    force_coeffs.cm = float(final_data[7])  # Moment coefficient
+                force_coeffs.cl = float(final_data[4])  # Lift coefficient  
+                force_coeffs.cm = float(final_data[7])  # Moment coefficient
                 
                 self.logger.info(f"Extracted force coefficients: Cd={force_coeffs.cd:.6f}, Cl={force_coeffs.cl:.6f}, Cm={force_coeffs.cm:.6f}")
+            else:
+                self.logger.warning(f"Insufficient data in coefficient file. Expected at least 8 columns, got {len(final_data)}")
             
             return force_coeffs
             
@@ -1430,29 +1492,39 @@ RAS
             return str(current_mesh_dir)
     
     def _apply_ffd_deformation(self, design_vars: np.ndarray) -> Path:
-        """Apply FFD deformation to mesh."""
-        # This is a placeholder for FFD integration
-        # In a real implementation, this would:
-        # 1. Load FFD box configuration
-        # 2. Apply design variables to control points
-        # 3. Deform mesh using FFD transformation
-        # 4. Write deformed mesh back to polyMesh
+        """Apply FFD-based mesh deformation to change airfoil shape."""
+        print(f"DEBUG: FFD deformation called with {len(design_vars)} design variables: {design_vars}")
+        self.logger.info(f"Applying FFD deformation with {len(design_vars)} design variables")
+        self.logger.info(f"Design variable values: {design_vars}")
         
-        mesh_dir = self.case_handler.case_path / "constant" / "polyMesh"
-        
-        # For now, just log the deformation request
-        self.logger.info(f"FFD deformation requested with {len(design_vars)} variables")
-        self.logger.info(f"Design variable range: [{np.min(design_vars):.6f}, {np.max(design_vars):.6f}]")
-        
-        # TODO: Integrate with actual FFD library (e.g., pyFFD, HFFD)
-        # This would involve:
-        # - Reading FFD box definition
-        # - Applying control point displacements
-        # - Interpolating mesh point movements
-        # - Writing new mesh files
-        
-        return mesh_dir
-    
+        try:
+            # Initialize FFD system if not already done
+            if not hasattr(self, 'ffd_system'):
+                print("DEBUG: Initializing FFD system...")
+                from ..mesh_deformation import FFDDeformation
+                self.ffd_system = FFDDeformation(
+                    self.case_handler.case_path, 
+                    control_points=[2, 2, 1]  # Match configuration
+                )
+                print("DEBUG: FFD system initialized successfully")
+                self.logger.info("Initialized FFD deformation system")
+            
+            # Apply design variables to deform airfoil mesh
+            print("DEBUG: Applying design variables to FFD system...")
+            mesh_path = self.ffd_system.apply_design_variables(design_vars)
+            
+            print(f"DEBUG: FFD deformation completed, mesh path: {mesh_path}")
+            self.logger.info(f"FFD deformation applied successfully")
+            return mesh_path
+            
+        except Exception as e:
+            print(f"DEBUG: FFD deformation failed with error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.logger.error(f"FFD deformation failed: {e}")
+            # Fallback to original mesh
+            return self.case_handler.case_path / "constant" / "polyMesh"
+
     def restore_original_mesh(self) -> bool:
         """Restore original mesh from backup."""
         try:
@@ -1936,14 +2008,12 @@ RAS
                                   log_file: Optional[Path]) -> SimulationResults:
         """Extract results from completed simulation."""
         results = SimulationResults(
-            status=SolverStatus.COMPLETED,
+            status="completed",
             solver_type=config.solver_type,
             turbulence_model=config.turbulence_model,
-            convergence_data=[],
             execution_time=0.0,
             iterations=0,
-            final_residuals={},
-            objective_values={},
+            is_converged=False,
             case_directory=config.case_directory,
             log_file=log_file
         )

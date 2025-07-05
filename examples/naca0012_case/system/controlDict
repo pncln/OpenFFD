@@ -22,7 +22,7 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         1000;
+endTime         100;
 
 deltaT          1;
 
@@ -53,7 +53,7 @@ functions
         writeControl    timeStep;
         writeInterval   1;
         
-        patches         (airfoil);
+        patches         (walls);
         rho             rhoInf;
         rhoInf          1.225;
         liftDir         (0 1 0);
@@ -72,7 +72,7 @@ functions
         writeControl    timeStep;
         writeInterval   1;
         
-        patches         (airfoil);
+        patches         (walls);
         rho             rhoInf;
         rhoInf          1.225;
         CofR            (0 0 0);

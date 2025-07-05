@@ -652,18 +652,98 @@ class SensitivityAnalyzer:
         """
         self.logger.info(f"Computing gradient using finite differences with step size {self.step_size}")
         
+        # Get baseline objective values
+        baseline_results = self.solver.run_simulation()
+        baseline_objectives = self.case_handler.extract_objectives(baseline_results)
+        
+        print(f"  Baseline objectives: {baseline_objectives}")
+        
         gradients = np.zeros_like(design_vars)
         
-        # Simplified finite difference implementation
-        # For now, return zero gradients (placeholder for real FFD implementation)
-        # Real implementation would:
-        # 1. Apply design variables to deform mesh using FFD
-        # 2. Run CFD simulation with deformed mesh
-        # 3. Evaluate objectives from CFD results
-        # 4. Compute finite difference gradients
+        # Compute finite difference gradients for all components
+        for i in range(len(design_vars)):
+            # Forward finite difference
+            perturbed_vars = design_vars.copy()
+            perturbed_vars[i] += self.step_size
+            
+            # Apply perturbed design variables 
+            mesh_file = self._apply_design_variables(perturbed_vars)
+            
+            # Save perturbed mesh for visualization
+            self._save_gradient_mesh(i, perturbed_vars)
+            
+            # Run simulation with perturbed variables
+            perturbed_results = self.solver.run_simulation(mesh_file)
+            perturbed_objectives = self.case_handler.extract_objectives(perturbed_results)
+            
+            print(f"  Component {i}: Perturbed objectives: {perturbed_objectives}")
+            
+            # Compute gradient for each objective (weighted sum)
+            gradient = 0.0
+            for obj in objectives:
+                obj_name = obj.name
+                if obj_name in baseline_objectives and obj_name in perturbed_objectives:
+                    obj_gradient = (perturbed_objectives[obj_name] - baseline_objectives[obj_name]) / self.step_size
+                    gradient += obj.weight * obj_gradient
+                    print(f"    {obj_name}: {baseline_objectives[obj_name]:.8f} -> {perturbed_objectives[obj_name]:.8f}, grad = {obj_gradient:.6e}")
+            
+            gradients[i] = gradient
+            self.logger.info(f"Gradient component {i}: {gradient:.6e}")
+            print(f"  Gradient[{i}]: {gradient:.6e}")
         
-        self.logger.info("Gradient computation completed (placeholder implementation)")
+        gradient_norm = np.linalg.norm(gradients)
+        self.logger.info(f"Gradient computation completed. Norm: {gradient_norm:.6e}")
+        print(f"  Gradient norm: {gradient_norm:.6e}")
+        print(f"  Gradient vector: {gradients}")
         return gradients
+    
+    def _apply_design_variables(self, design_vars: np.ndarray) -> str:
+        """Apply design variables to deform mesh."""
+        # Use solver's mesh deformation capability if available
+        if hasattr(self.solver, 'apply_design_variables'):
+            return self.solver.apply_design_variables(design_vars)
+        else:
+            # For now, return original mesh path (no deformation)
+            # Real implementation would use FFD to deform the mesh
+            self.logger.warning("No mesh deformation capability available - using original mesh")
+            if hasattr(self.case_handler, 'case_path'):
+                return str(self.case_handler.case_path / 'constant' / 'polyMesh')
+            else:
+                return "constant/polyMesh"
+    
+    def _save_gradient_mesh(self, component_idx: int, design_vars: np.ndarray) -> None:
+        """Save mesh state during gradient computation."""
+        import shutil
+        from pathlib import Path
+        
+        if hasattr(self.case_handler, 'case_path'):
+            case_path = Path(self.case_handler.case_path)
+            
+            # Create gradient_meshes directory if it doesn't exist
+            mesh_dir = case_path / "gradient_meshes"
+            mesh_dir.mkdir(exist_ok=True)
+            
+            # Create component-specific directory
+            component_dir = mesh_dir / f"gradient_component_{component_idx}"
+            component_dir.mkdir(exist_ok=True)
+            
+            # Copy current polyMesh
+            source_mesh = case_path / "constant" / "polyMesh"
+            dest_mesh = component_dir / "polyMesh"
+            
+            if source_mesh.exists():
+                if dest_mesh.exists():
+                    shutil.rmtree(dest_mesh)
+                shutil.copytree(source_mesh, dest_mesh)
+                
+                # Save design variables for reference
+                design_vars_file = component_dir / "design_variables.txt"
+                with open(design_vars_file, 'w') as f:
+                    f.write(f"Gradient Component: {component_idx}\n")
+                    f.write(f"Perturbed Design Variables: {design_vars.tolist()}\n")
+                    f.write(f"Step Size: {self.step_size}\n")
+                
+                print(f"    Gradient mesh saved to: gradient_meshes/gradient_component_{component_idx}")
     
     def _verify_gradients(self, solver: BaseSolver, cfd_config: Any,
                          design_variables: Dict[str, np.ndarray],

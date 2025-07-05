@@ -225,7 +225,9 @@ class UniversalOptimizer:
             constraints=constraints,
             options={
                 'maxiter': self.config.optimization.max_iterations,
-                'ftol': self.config.optimization.tolerance,
+                'ftol': self.config.optimization.tolerance * 0.1,  # Reduced function tolerance
+                'gtol': 1e-8,  # Gradient tolerance
+                'eps': 1e-8,   # Step size for finite difference
                 'disp': True
             }
         )
@@ -263,6 +265,9 @@ class UniversalOptimizer:
         # Apply design variables (deform mesh)
         mesh_file = self._apply_design_variables(design_vars)
         
+        # Save mesh for this iteration
+        self._save_iteration_mesh(self.current_iteration)
+        
         # Run CFD simulation
         results = self.solver.run_simulation(mesh_file)
         
@@ -288,6 +293,7 @@ class UniversalOptimizer:
         self.history.append(iteration_data)
         
         print(f"  Objective value: {total_objective:.6f}")
+        print(f"  Mesh saved to: optimization_meshes/iteration_{self.current_iteration:03d}")
         
         return total_objective
     
@@ -343,6 +349,38 @@ class UniversalOptimizer:
             bounds.append((-0.2, 0.2))
         
         return bounds
+    
+    def _save_iteration_mesh(self, iteration: int) -> None:
+        """Save the current mesh state for this iteration."""
+        import shutil
+        
+        # Create optimization_meshes directory if it doesn't exist
+        mesh_dir = self.case_path / "optimization_meshes"
+        mesh_dir.mkdir(exist_ok=True)
+        
+        # Create iteration-specific directory
+        iteration_dir = mesh_dir / f"iteration_{iteration:03d}"
+        iteration_dir.mkdir(exist_ok=True)
+        
+        # Copy current polyMesh
+        source_mesh = self.case_path / "constant" / "polyMesh"
+        dest_mesh = iteration_dir / "polyMesh"
+        
+        if source_mesh.exists():
+            if dest_mesh.exists():
+                shutil.rmtree(dest_mesh)
+            shutil.copytree(source_mesh, dest_mesh)
+            
+            # Also save design variables for reference
+            design_vars_file = iteration_dir / "design_variables.txt"
+            if hasattr(self, 'history') and self.history:
+                current_vars = self.history[-1]['design_vars']
+                with open(design_vars_file, 'w') as f:
+                    f.write(f"Iteration: {iteration}\n")
+                    f.write(f"Design Variables: {current_vars}\n")
+                    f.write(f"Objective Value: {self.history[-1]['objective_value']:.8f}\n")
+                    f.write(f"Drag Coefficient: {self.history[-1]['objective_components'].get('drag_coefficient', 'N/A')}\n")
+                    f.write(f"Lift Coefficient: {self.history[-1]['objective_components'].get('lift_coefficient', 'N/A')}\n")
     
     def _save_results(self, results: Dict[str, Any]) -> None:
         """Save optimization results."""
