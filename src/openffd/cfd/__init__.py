@@ -87,6 +87,47 @@ from .solvers.openfoam import OpenFOAMSolver
 # Sensitivity analysis
 from .optimization.sensitivity import SensitivityAnalyzer
 
+# Discrete Adjoint Framework
+from .adjoint import (
+    AdjointVariables, AdjointConfig, DiscreteAdjointSolver,
+    DragObjective, LiftObjective, CompositeObjective,
+    SensitivityAnalysis, DesignGradient, GMRESAdjointSolver
+)
+
+# CFD Equation Solvers
+from .equations import EulerEquations3D, NavierStokesEquations3D
+from .mesh import UnstructuredMesh3D, ConnectivityManager, BoundaryManager
+from .numerics import RiemannSolverManager, WENOReconstructor, TVDReconstructor
+
+# Slope and Flux Limiters
+from .limiters import (
+    SlopeLimiter, MinmodLimiter, SuperbeeLimiter, VanLeerLimiter, 
+    MUSCLLimiter, VenkatakrishnanLimiter, FluxLimiter, AdaptiveLimiter,
+    ShockDetector, MultiDimensionalLimiter, create_slope_limiter, LimiterConfig
+)
+
+# Time Integration Schemes
+from .time_integration import (
+    TimeIntegrator, ExplicitEuler, RungeKutta2, RungeKutta4, RungeKutta3TVD,
+    BackwardEuler, BDF2, AdaptiveRungeKutta, LocalTimeSteppingSolver,
+    create_time_integrator, TimeIntegrationConfig
+)
+
+# Boundary Conditions
+from .boundary_conditions import (
+    BoundaryCondition, FarfieldBoundaryCondition, WallBoundaryCondition,
+    SymmetryBoundaryCondition, InletBoundaryCondition, OutletBoundaryCondition,
+    BoundaryConditionManager, BoundaryPatch, BoundaryType,
+    create_boundary_patch, BoundaryConditionConfig
+)
+
+# Turbulence Models
+from .turbulence_models import (
+    TurbulenceModel, SpalartAllmarasModel, KEpsilonStandardModel, KOmegaSSTModel,
+    TurbulenceModelManager, TurbulenceQuantities, TurbulenceModelType,
+    create_turbulence_model, TurbulenceModelConfig
+)
+
 # Utilities
 from .utils import utilities
 
