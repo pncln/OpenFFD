@@ -1,0 +1,199 @@
+================================================================================
+HAND CALCULATION: SINGLE OPTIMIZATION ITERATION
+FFD Y-Direction Shape Optimization using Forward Finite Differences
+================================================================================
+
+INITIAL STATE (Iteration k=5)
+=============================
+Current design variables: x = [0.05, -0.02, 0.03, -0.01]
+Current drag coefficient: Cd = 0.012589
+
+STEP 1: OPENFOAM SOLVER COMPLETION
+==================================
+After simpleFoam converges at iteration k=5:
+
+Force coefficient extraction from OpenFOAM:
+postProcessing/forceCoeffs/0/coefficient.dat contains:
+    Cd = 0.012589    # Current drag coefficient
+    Cl = 0.00412     # Current lift coefficient  
+    Cm = -0.00156    # Current moment coefficient
+
+STEP 2: GRADIENT COMPUTATION (FORWARD FINITE DIFFERENCES)
+=========================================================
+
+Perturbation parameters:
+    h = 1e-6    # Step size for finite differences
+    n = 4       # Number of design variables
+
+For each design variable i ∈ {1,2,3,4}:
+
+Design Variable 1 (u₁ = Front Upper):
+------------------------------------
+x₁_perturbed = [0.05 + 1e-6, -0.02, 0.03, -0.01] 
+             = [0.050001, -0.02, 0.03, -0.01]
+
+1. Apply FFD deformation with x₁_perturbed
+2. Run simpleFoam → Cd₁ = 0.012592
+3. Compute gradient: ∂Cd/∂u₁ = (0.012592 - 0.012589)/1e-6 = 3.0
+
+Design Variable 2 (u₂ = Rear Upper):
+-----------------------------------
+x₂_perturbed = [0.05, -0.02 + 1e-6, 0.03, -0.01] 
+             = [0.05, -0.019999, 0.03, -0.01]
+
+1. Apply FFD deformation with x₂_perturbed  
+2. Run simpleFoam → Cd₂ = 0.012585
+3. Compute gradient: ∂Cd/∂u₂ = (0.012585 - 0.012589)/1e-6 = -4.0
+
+Design Variable 3 (u₃ = Front Lower):
+------------------------------------
+x₃_perturbed = [0.05, -0.02, 0.03 + 1e-6, -0.01] 
+             = [0.05, -0.02, 0.030001, -0.01]
+
+1. Apply FFD deformation with x₃_perturbed
+2. Run simpleFoam → Cd₃ = 0.012591  
+3. Compute gradient: ∂Cd/∂u₃ = (0.012591 - 0.012589)/1e-6 = 2.0
+
+Design Variable 4 (u₄ = Rear Lower):
+-----------------------------------
+x₄_perturbed = [0.05, -0.02, 0.03, -0.01 + 1e-6] 
+             = [0.05, -0.02, 0.03, -0.009999]
+
+1. Apply FFD deformation with x₄_perturbed
+2. Run simpleFoam → Cd₄ = 0.012587
+3. Compute gradient: ∂Cd/∂u₄ = (0.012587 - 0.012589)/1e-6 = -2.0
+
+STEP 3: GRADIENT VECTOR ASSEMBLY
+================================
+∇Cd = [∂Cd/∂u₁, ∂Cd/∂u₂, ∂Cd/∂u₃, ∂Cd/∂u₄] = [3.0, -4.0, 2.0, -2.0]
+
+STEP 4: SLSQP OPTIMIZATION STEP
+===============================
+
+Current optimization state:
+    f(x) = 0.012589                    # Objective function value
+    ∇f(x) = [3.0, -4.0, 2.0, -2.0]   # Gradient vector
+
+SLSQP internal calculations:
+
+1. Quasi-Newton Hessian Update (BFGS):
+--------------------------------------
+Previous Hessian approximation B₄ (4×4 matrix):
+B₄ = [[1.2, 0.1, 0.0, 0.0],
+      [0.1, 1.5, 0.0, 0.0], 
+      [0.0, 0.0, 1.1, 0.1],
+      [0.0, 0.0, 0.1, 1.3]]
+
+Gradient difference: y = ∇f₅ - ∇f₄  
+y = [3.0, -4.0, 2.0, -2.0] - [2.8, -3.9, 1.9, -1.8] = [0.2, -0.1, 0.1, -0.2]
+
+Step difference: s = x₅ - x₄
+s = [0.05, -0.02, 0.03, -0.01] - [0.048, -0.019, 0.029, -0.009] 
+  = [0.002, -0.001, 0.001, -0.001]
+
+BFGS update formula:
+B₅ = B₄ + (y·yᵀ)/(yᵀ·s) - (B₄·s·sᵀ·B₄)/(sᵀ·B₄·s)
+
+2. Search Direction Calculation:
+-------------------------------
+Solve: B₅ · p = -∇f
+p = -B₅⁻¹ · ∇f = -B₅⁻¹ · [3.0, -4.0, 2.0, -2.0]
+p = [-0.0024, 0.0032, -0.0016, 0.0016]  # Search direction
+
+3. Line Search (Armijo Condition):
+----------------------------------
+α = 1.0  # Initial step size
+while f(x + α·p) > f(x) + c₁·α·∇fᵀ·p:
+    α = 0.5 * α  # Backtrack
+
+Converged at α = 0.8
+
+STEP 5: DESIGN VARIABLE UPDATE
+==============================
+
+New design variables for iteration k+1=6:
+x₆ = x₅ + α·p 
+   = [0.05, -0.02, 0.03, -0.01] + 0.8·[-0.0024, 0.0032, -0.0016, 0.0016]
+   = [0.05, -0.02, 0.03, -0.01] + [-0.00192, 0.00256, -0.00128, 0.00128]
+   = [0.04808, -0.01744, 0.02872, -0.00872]
+
+STEP 6: FFD MESH DEFORMATION FOR NEXT ITERATION
+===============================================
+
+Apply new design variables to FFD system:
+
+FFD control point displacements (Y-direction only):
+    front_upper:  u₁ = 0.04808
+    rear_upper:   u₂ = -0.01744  
+    front_lower:  u₃ = 0.02872
+    rear_lower:   u₄ = -0.00872
+
+Trilinear interpolation for each airfoil mesh point:
+for mesh_point in airfoil_boundary_points:
+    # Compute FFD local coordinates (ξ, η, ζ)
+    local_coords = compute_ffd_coordinates(mesh_point)
+    
+    # Apply Y-direction displacement only
+    displacement_y = trilinear_interpolation(local_coords, control_point_displacements)
+    
+    # Update mesh point
+    new_mesh_point = mesh_point + [0, displacement_y, 0]
+
+STEP 7: DATA STORAGE AND NEXT ITERATION SETUP
+=============================================
+
+Save iteration results:
+iteration_data = {
+    'iteration': 6,
+    'design_vars': [0.04808, -0.01744, 0.02872, -0.00872],
+    'objective': 0.012589,
+    'gradient': [3.0, -4.0, 2.0, -2.0],
+    'step_size': 0.8,
+    'convergence_criteria': {
+        'gradient_norm': 5.745,    # ||∇f|| = √(3² + 4² + 2² + 2²)
+        'step_norm': 0.00435,      # ||α·p||
+        'objective_change': 0.000013
+    }
+}
+
+Prepare next OpenFOAM simulation:
+1. Write new mesh with FFD deformations → constant/polyMesh/points
+2. Copy converged solution as initial condition → 0/U, 0/p, 0/k, 0/omega  
+3. Reset time to 0 → system/controlDict
+4. Ready for simpleFoam execution at iteration 6
+
+================================================================================
+SUMMARY: COMPUTATIONAL COST
+================================================================================
+Total CFD simulations for this iteration: 5
+- 1 base evaluation: Cd(x₅)
+- 4 gradient evaluations: Cd(x₅ + h·eᵢ) for i=1,2,3,4
+
+Next iteration input: x₆ = [0.04808, -0.01744, 0.02872, -0.00872]
+Expected improvement: Cd ≈ 0.012576 (based on linear extrapolation)
+
+FINITE DIFFERENCE GRADIENT FORMULA:
+∂f/∂xᵢ ≈ (f(x + h·eᵢ) - f(x))/h
+
+where:
+- f(x) = drag coefficient function
+- h = 1e-6 = finite difference step size
+- eᵢ = unit vector in direction of design variable i
+- x = current design variable vector [u₁, u₂, u₃, u₄]
+
+FFD CONTROL POINT CONFIGURATION:
+[2×2×1] grid with 4 design variables:
+- u₁: Front Upper control point Y-displacement
+- u₂: Rear Upper control point Y-displacement  
+- u₃: Front Lower control point Y-displacement
+- u₄: Rear Lower control point Y-displacement
+
+CONVERGENCE CRITERIA:
+- Gradient norm: ||∇f|| < 1e-6
+- Step norm: ||α·p|| < 1e-6
+- Objective change: |f(xₖ₊₁) - f(xₖ)| < 1e-9
+- Maximum iterations: 100
+
+================================================================================
+END OF HAND CALCULATION
+================================================================================

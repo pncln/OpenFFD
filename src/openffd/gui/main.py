@@ -50,7 +50,7 @@ class OpenFFDMainWindow(QMainWindow):
     def __init__(self):
         """Initialize the main window."""
         super().__init__()
-        self.setWindowTitle("OpenFFD - Free-Form Deformation Tool")
+        self.setWindowTitle("OpenFFD")
         self.setMinimumSize(1200, 800)
         
         # Initialize state variables

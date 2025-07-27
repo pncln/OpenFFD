@@ -1,0 +1,322 @@
+% ================================================================================
+% GENERAL OPTIMIZATION FORMULAS
+% Mathematical formulation for gradient-based shape optimization
+% ================================================================================
+
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+
+\begin{document}
+
+% ================================================================================
+\section{Optimization Problem Formulation}
+% ================================================================================
+
+\subsection{General Objective Function}
+\begin{equation}
+\min_{\mathbf{x}} \quad f(\mathbf{x})
+\end{equation}
+
+where $\mathbf{x} \in \mathbb{R}^n$ is the design variable vector.
+
+\subsection{Bound Constraints}
+\begin{equation}
+\mathbf{x}^L \leq \mathbf{x} \leq \mathbf{x}^U
+\end{equation}
+
+where $\mathbf{x}^L$ and $\mathbf{x}^U$ are the lower and upper bounds, respectively.
+
+\subsection{General Constrained Optimization}
+\begin{align}
+\min_{\mathbf{x}} \quad &f(\mathbf{x}) \\
+\text{subject to} \quad &g_i(\mathbf{x}) \leq 0, \quad i = 1, \ldots, m \\
+&h_j(\mathbf{x}) = 0, \quad j = 1, \ldots, p \\
+&\mathbf{x}^L \leq \mathbf{x} \leq \mathbf{x}^U
+\end{align}
+
+% ================================================================================
+\section{FFD Parameterization}
+% ================================================================================
+
+\subsection{Control Point Grid}
+\begin{equation}
+\mathbf{P}_{i,j,k} = \mathbf{P}_{i,j,k}^0 + \delta \mathbf{P}_{i,j,k}
+\end{equation}
+
+where $\mathbf{P}_{i,j,k}^0$ are the initial control point positions and $\delta \mathbf{P}_{i,j,k}$ are the design-dependent displacements.
+
+\subsection{Design Variable Mapping}
+\begin{equation}
+\delta \mathbf{P}_{i,j,k} = \mathbf{D}_{i,j,k} \mathbf{x}
+\end{equation}
+
+where $\mathbf{D}_{i,j,k}$ is the design variable mapping matrix.
+
+\subsection{Trilinear Interpolation}
+\begin{equation}
+\delta \mathbf{r}(\boldsymbol{\xi}) = \sum_{i=0}^{n_i-1} \sum_{j=0}^{n_j-1} \sum_{k=0}^{n_k-1} B_i^{p_i}(\xi) B_j^{p_j}(\eta) B_k^{p_k}(\zeta) \delta \mathbf{P}_{i,j,k}
+\end{equation}
+
+where $\boldsymbol{\xi} = (\xi, \eta, \zeta)$ are the parametric coordinates and $B_i^p$ are Bernstein polynomials of degree $p$:
+\begin{equation}
+B_i^p(t) = \binom{p}{i} t^i (1-t)^{p-i}
+\end{equation}
+
+\subsection{Mesh Point Deformation}
+\begin{equation}
+\mathbf{r}^{new} = \mathbf{r}^{old} + \delta \mathbf{r}(\boldsymbol{\xi}(\mathbf{r}^{old}))
+\end{equation}
+
+% ================================================================================
+\section{Gradient Computation Methods}
+% ================================================================================
+
+\subsection{Forward Finite Differences}
+\begin{equation}
+\frac{\partial f}{\partial x_i} \approx \frac{f(\mathbf{x} + h \mathbf{e}_i) - f(\mathbf{x})}{h}
+\end{equation}
+
+\subsection{Backward Finite Differences}
+\begin{equation}
+\frac{\partial f}{\partial x_i} \approx \frac{f(\mathbf{x}) - f(\mathbf{x} - h \mathbf{e}_i)}{h}
+\end{equation}
+
+\subsection{Central Finite Differences}
+\begin{equation}
+\frac{\partial f}{\partial x_i} \approx \frac{f(\mathbf{x} + h \mathbf{e}_i) - f(\mathbf{x} - h \mathbf{e}_i)}{2h}
+\end{equation}
+
+\subsection{Gradient Vector}
+\begin{equation}
+\nabla f(\mathbf{x}) = \begin{bmatrix}
+\frac{\partial f}{\partial x_1} \\
+\frac{\partial f}{\partial x_2} \\
+\vdots \\
+\frac{\partial f}{\partial x_n}
+\end{bmatrix}
+\end{equation}
+
+\subsection{Computational Cost}
+For forward finite differences:
+\begin{equation}
+N_{eval} = 1 + n
+\end{equation}
+
+For central finite differences:
+\begin{equation}
+N_{eval} = 2n
+\end{equation}
+
+where $n$ is the number of design variables.
+
+% ================================================================================
+\section{Sequential Quadratic Programming (SQP)}
+% ================================================================================
+
+\subsection{Quadratic Subproblem}
+At each iteration $k$, solve:
+\begin{align}
+\min_{\mathbf{p}} \quad &\nabla f(\mathbf{x}^k)^T \mathbf{p} + \frac{1}{2} \mathbf{p}^T \mathbf{B}^k \mathbf{p} \\
+\text{subject to} \quad &\nabla g_i(\mathbf{x}^k)^T \mathbf{p} + g_i(\mathbf{x}^k) \leq 0, \quad i = 1, \ldots, m \\
+&\nabla h_j(\mathbf{x}^k)^T \mathbf{p} + h_j(\mathbf{x}^k) = 0, \quad j = 1, \ldots, p
+\end{align}
+
+where $\mathbf{p}$ is the search direction and $\mathbf{B}^k$ is the Hessian approximation.
+
+\subsection{Lagrangian Function}
+\begin{equation}
+\mathcal{L}(\mathbf{x}, \boldsymbol{\lambda}, \boldsymbol{\mu}) = f(\mathbf{x}) + \sum_{i=1}^{m} \lambda_i g_i(\mathbf{x}) + \sum_{j=1}^{p} \mu_j h_j(\mathbf{x})
+\end{equation}
+
+\subsection{KKT Conditions}
+\begin{align}
+\nabla_{\mathbf{x}} \mathcal{L} &= \nabla f(\mathbf{x}) + \sum_{i=1}^{m} \lambda_i \nabla g_i(\mathbf{x}) + \sum_{j=1}^{p} \mu_j \nabla h_j(\mathbf{x}) = \mathbf{0} \\
+g_i(\mathbf{x}) &\leq 0, \quad i = 1, \ldots, m \\
+h_j(\mathbf{x}) &= 0, \quad j = 1, \ldots, p \\
+\lambda_i &\geq 0, \quad i = 1, \ldots, m \\
+\lambda_i g_i(\mathbf{x}) &= 0, \quad i = 1, \ldots, m
+\end{align}
+
+% ================================================================================
+\section{Hessian Approximation Methods}
+% ================================================================================
+
+\subsection{BFGS Update}
+\begin{equation}
+\mathbf{B}^{k+1} = \mathbf{B}^k + \frac{\mathbf{y}^k (\mathbf{y}^k)^T}{(\mathbf{y}^k)^T \mathbf{s}^k} - \frac{\mathbf{B}^k \mathbf{s}^k (\mathbf{s}^k)^T \mathbf{B}^k}{(\mathbf{s}^k)^T \mathbf{B}^k \mathbf{s}^k}
+\end{equation}
+
+where:
+\begin{align}
+\mathbf{s}^k &= \mathbf{x}^{k+1} - \mathbf{x}^k \\
+\mathbf{y}^k &= \nabla f(\mathbf{x}^{k+1}) - \nabla f(\mathbf{x}^k)
+\end{align}
+
+\subsection{DFP Update}
+\begin{equation}
+\mathbf{B}^{k+1} = \mathbf{B}^k - \frac{\mathbf{B}^k \mathbf{s}^k (\mathbf{s}^k)^T \mathbf{B}^k}{(\mathbf{s}^k)^T \mathbf{B}^k \mathbf{s}^k} + \frac{\mathbf{y}^k (\mathbf{y}^k)^T}{(\mathbf{y}^k)^T \mathbf{s}^k}
+\end{equation}
+
+\subsection{SR1 Update}
+\begin{equation}
+\mathbf{B}^{k+1} = \mathbf{B}^k + \frac{(\mathbf{y}^k - \mathbf{B}^k \mathbf{s}^k)(\mathbf{y}^k - \mathbf{B}^k \mathbf{s}^k)^T}{(\mathbf{y}^k - \mathbf{B}^k \mathbf{s}^k)^T \mathbf{s}^k}
+\end{equation}
+
+% ================================================================================
+\section{Line Search Methods}
+% ================================================================================
+
+\subsection{Armijo Condition}
+\begin{equation}
+f(\mathbf{x}^k + \alpha \mathbf{p}^k) \leq f(\mathbf{x}^k) + c_1 \alpha (\nabla f(\mathbf{x}^k))^T \mathbf{p}^k
+\end{equation}
+
+where $0 < c_1 < 1$ is the Armijo parameter.
+
+\subsection{Wolfe Conditions}
+Strong Wolfe conditions:
+\begin{align}
+f(\mathbf{x}^k + \alpha \mathbf{p}^k) &\leq f(\mathbf{x}^k) + c_1 \alpha (\nabla f(\mathbf{x}^k))^T \mathbf{p}^k \\
+|(\nabla f(\mathbf{x}^k + \alpha \mathbf{p}^k))^T \mathbf{p}^k| &\leq c_2 |(\nabla f(\mathbf{x}^k))^T \mathbf{p}^k|
+\end{align}
+
+where $0 < c_1 < c_2 < 1$.
+
+\subsection{Backtracking Line Search}
+\begin{equation}
+\alpha^{k+1} = \rho \alpha^k
+\end{equation}
+
+where $0 < \rho < 1$ is the reduction factor.
+
+\subsection{Design Variable Update}
+\begin{equation}
+\mathbf{x}^{k+1} = \mathbf{x}^k + \alpha^k \mathbf{p}^k
+\end{equation}
+
+% ================================================================================
+\section{Convergence Criteria}
+% ================================================================================
+
+\subsection{Gradient Norm Tolerance}
+\begin{equation}
+\|\nabla f(\mathbf{x}^k)\| < \epsilon_g
+\end{equation}
+
+\subsection{Step Size Tolerance}
+\begin{equation}
+\|\mathbf{x}^{k+1} - \mathbf{x}^k\| < \epsilon_x
+\end{equation}
+
+\subsection{Objective Function Tolerance}
+\begin{equation}
+\frac{|f(\mathbf{x}^{k+1}) - f(\mathbf{x}^k)|}{|f(\mathbf{x}^k)| + \epsilon_{abs}} < \epsilon_f
+\end{equation}
+
+where $\epsilon_{abs}$ prevents division by zero.
+
+\subsection{Maximum Iterations}
+\begin{equation}
+k \leq k_{max}
+\end{equation}
+
+\subsection{Constraint Violation Tolerance}
+\begin{align}
+\max_{i=1,\ldots,m} \{g_i(\mathbf{x}^k)\} &< \epsilon_g \\
+\max_{j=1,\ldots,p} \{|h_j(\mathbf{x}^k)|\} &< \epsilon_h
+\end{align}
+
+% ================================================================================
+\section{Shape Sensitivity Analysis}
+% ================================================================================
+
+\subsection{General Chain Rule}
+\begin{equation}
+\frac{\partial f}{\partial x_i} = \frac{\partial f}{\partial \mathbf{r}} \cdot \frac{\partial \mathbf{r}}{\partial x_i}
+\end{equation}
+
+where $\mathbf{r}$ represents the mesh coordinates.
+
+\subsection{FFD Shape Sensitivity}
+\begin{equation}
+\frac{\partial \mathbf{r}}{\partial x_i} = \frac{\partial}{\partial x_i}\left[\mathbf{r}^0 + \delta \mathbf{r}(\boldsymbol{\xi}(\mathbf{r}^0))\right]
+\end{equation}
+
+\subsection{Parametric Sensitivity}
+\begin{equation}
+\frac{\partial \delta \mathbf{r}}{\partial x_i} = \sum_{j=0}^{n_j-1} \sum_{k=0}^{n_k-1} \sum_{l=0}^{n_l-1} B_j(\xi) B_k(\eta) B_l(\zeta) \frac{\partial \delta \mathbf{P}_{j,k,l}}{\partial x_i}
+\end{equation}
+
+% ================================================================================
+\section{Trust Region Methods}
+% ================================================================================
+
+\subsection{Trust Region Subproblem}
+\begin{align}
+\min_{\mathbf{p}} \quad &\nabla f(\mathbf{x}^k)^T \mathbf{p} + \frac{1}{2} \mathbf{p}^T \mathbf{B}^k \mathbf{p} \\
+\text{subject to} \quad &\|\mathbf{p}\| \leq \Delta^k
+\end{align}
+
+where $\Delta^k$ is the trust region radius.
+
+\subsection{Trust Region Update}
+\begin{equation}
+\rho^k = \frac{f(\mathbf{x}^k) - f(\mathbf{x}^k + \mathbf{p}^k)}{m^k(\mathbf{0}) - m^k(\mathbf{p}^k)}
+\end{equation}
+
+where $m^k(\mathbf{p})$ is the quadratic model.
+
+Trust region radius update:
+\begin{equation}
+\Delta^{k+1} = \begin{cases}
+\gamma_1 \Delta^k & \text{if } \rho^k < \eta_1 \\
+\Delta^k & \text{if } \eta_1 \leq \rho^k < \eta_2 \\
+\min(\gamma_2 \Delta^k, \Delta_{max}) & \text{if } \rho^k \geq \eta_2
+\end{cases}
+\end{equation}
+
+% ================================================================================
+\section{Multi-Objective Optimization}
+% ================================================================================
+
+\subsection{Weighted Sum Method}
+\begin{equation}
+\min_{\mathbf{x}} \quad \sum_{i=1}^{n_obj} w_i f_i(\mathbf{x})
+\end{equation}
+
+where $w_i \geq 0$ and $\sum_{i=1}^{n_obj} w_i = 1$.
+
+\subsection{Pareto Optimality}
+A point $\mathbf{x}^*$ is Pareto optimal if there exists no $\mathbf{x}$ such that:
+\begin{align}
+f_i(\mathbf{x}) &\leq f_i(\mathbf{x}^*) \quad \forall i = 1, \ldots, n_obj \\
+f_j(\mathbf{x}) &< f_j(\mathbf{x}^*) \quad \text{for at least one } j
+\end{align}
+
+\subsection{$\epsilon$-Constraint Method}
+\begin{align}
+\min_{\mathbf{x}} \quad &f_1(\mathbf{x}) \\
+\text{subject to} \quad &f_i(\mathbf{x}) \leq \epsilon_i, \quad i = 2, \ldots, n_obj
+\end{align}
+
+% ================================================================================
+\section{Uncertainty Quantification}
+% ================================================================================
+
+\subsection{Robust Optimization}
+\begin{equation}
+\min_{\mathbf{x}} \quad \mathbb{E}[f(\mathbf{x}, \boldsymbol{\xi})] + \beta \sqrt{\text{Var}[f(\mathbf{x}, \boldsymbol{\xi})]}
+\end{equation}
+
+where $\boldsymbol{\xi}$ represents uncertain parameters and $\beta$ is the risk aversion parameter.
+
+\subsection{Chance Constraints}
+\begin{equation}
+\mathbb{P}[g_i(\mathbf{x}, \boldsymbol{\xi}) \leq 0] \geq 1 - \alpha_i
+\end{equation}
+
+where $\alpha_i$ is the allowable violation probability.
+
+\end{document}

@@ -1,0 +1,330 @@
+% ================================================================================
+% FFD Y-DIRECTION OPTIMIZATION: MATHEMATICAL FORMULATION
+% Complete LaTeX equations for academic research paper
+% ================================================================================
+
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+
+\begin{document}
+
+% ================================================================================
+\section{Optimization Problem Formulation}
+% ================================================================================
+
+\subsection{Objective Function}
+\begin{equation}
+\min_{\mathbf{u}} \quad f(\mathbf{u}) = C_d(\mathbf{u})
+\end{equation}
+
+where $\mathbf{u} = [u_1, u_2, u_3, u_4]^T$ are the FFD control point Y-displacements and $C_d$ is the drag coefficient.
+
+\subsection{Design Variable Bounds}
+\begin{equation}
+\mathbf{u}^L \leq \mathbf{u} \leq \mathbf{u}^U
+\end{equation}
+
+where $\mathbf{u}^L = [-0.2, -0.2, -0.2, -0.2]^T$ and $\mathbf{u}^U = [0.2, 0.2, 0.2, 0.2]^T$.
+
+% ================================================================================
+\section{FFD Parameterization}
+% ================================================================================
+
+\subsection{FFD Control Point Grid}
+The FFD control volume is defined by a $[2 \times 2 \times 1]$ grid with control points:
+\begin{equation}
+\mathbf{P}_{i,j,k} = \mathbf{P}_{i,j,k}^0 + \delta \mathbf{P}_{i,j,k}
+\end{equation}
+
+where $\mathbf{P}_{i,j,k}^0$ are the initial control point positions and $\delta \mathbf{P}_{i,j,k}$ are the displacements.
+
+\subsection{Y-Direction Only Constraint}
+\begin{equation}
+\delta \mathbf{P}_{i,j,k} = \begin{bmatrix} 0 \\ u_{ij} \\ 0 \end{bmatrix}
+\end{equation}
+
+where $u_{ij}$ corresponds to the design variables:
+\begin{align}
+u_{00} &= u_1 \quad \text{(Front Upper)} \\
+u_{10} &= u_2 \quad \text{(Rear Upper)} \\
+u_{01} &= u_3 \quad \text{(Front Lower)} \\
+u_{11} &= u_4 \quad \text{(Rear Lower)}
+\end{align}
+
+\subsection{Trilinear Interpolation}
+For any point $\mathbf{x}$ in the FFD volume, the displacement is computed using:
+\begin{equation}
+\delta \mathbf{x} = \sum_{i=0}^{1} \sum_{j=0}^{1} \sum_{k=0}^{0} B_i(\xi) B_j(\eta) B_k(\zeta) \delta \mathbf{P}_{i,j,k}
+\end{equation}
+
+where $(\xi, \eta, \zeta)$ are the local FFD coordinates and $B_i$, $B_j$, $B_k$ are Bernstein polynomials:
+\begin{align}
+B_0(\xi) &= 1 - \xi \\
+B_1(\xi) &= \xi \\
+B_0(\eta) &= 1 - \eta \\
+B_1(\eta) &= \eta \\
+B_0(\zeta) &= 1
+\end{align}
+
+\subsection{Mesh Point Deformation}
+The new mesh coordinates are:
+\begin{equation}
+\mathbf{x}^{new} = \mathbf{x}^{old} + \delta \mathbf{x}
+\end{equation}
+
+% ================================================================================
+\section{Governing Equations}
+% ================================================================================
+
+\subsection{RANS Equations}
+\subsubsection{Continuity Equation}
+\begin{equation}
+\frac{\partial \rho}{\partial t} + \frac{\partial}{\partial x_i}(\rho u_i) = 0
+\end{equation}
+
+\subsubsection{Momentum Equation}
+\begin{equation}
+\frac{\partial}{\partial t}(\rho u_i) + \frac{\partial}{\partial x_j}(\rho u_i u_j) = -\frac{\partial p}{\partial x_i} + \frac{\partial}{\partial x_j}\left[\mu \left(\frac{\partial u_i}{\partial x_j} + \frac{\partial u_j}{\partial x_i} - \frac{2}{3}\delta_{ij}\frac{\partial u_k}{\partial x_k}\right)\right] + \frac{\partial}{\partial x_j}(-\rho \overline{u_i' u_j'})
+\end{equation}
+
+\subsubsection{Turbulent Kinetic Energy ($k$)}
+\begin{equation}
+\frac{\partial}{\partial t}(\rho k) + \frac{\partial}{\partial x_i}(\rho k u_i) = \frac{\partial}{\partial x_j}\left[\left(\mu + \frac{\mu_t}{\sigma_k}\right) \frac{\partial k}{\partial x_j}\right] + G_k - Y_k
+\end{equation}
+
+\subsubsection{Specific Dissipation Rate ($\omega$)}
+\begin{equation}
+\frac{\partial}{\partial t}(\rho \omega) + \frac{\partial}{\partial x_i}(\rho \omega u_i) = \frac{\partial}{\partial x_j}\left[\left(\mu + \frac{\mu_t}{\sigma_\omega}\right) \frac{\partial \omega}{\partial x_j}\right] + G_\omega - Y_\omega + D_\omega
+\end{equation}
+
+\subsection{Turbulent Viscosity}
+\begin{equation}
+\mu_t = \rho \frac{k}{\omega} \frac{1}{\max\left[\frac{1}{\alpha^*}, \frac{SF_2}{a_1\omega}\right]}
+\end{equation}
+
+\subsection{Boundary Conditions}
+\subsubsection{Inlet}
+\begin{align}
+\mathbf{u} &= \mathbf{u}_{inlet} = [30, 0, 0]^T \, \text{m/s} \\
+\frac{\partial p}{\partial n} &= 0 \\
+k &= k_{inlet} = 0.06 \, \text{m}^2/\text{s}^2 \\
+\omega &= \omega_{inlet} = 400 \, \text{s}^{-1} \\
+\nu_t &= \nu_{t,inlet} = 1 \times 10^{-5} \, \text{m}^2/\text{s}
+\end{align}
+
+\subsubsection{Outlet}
+\begin{align}
+\frac{\partial \mathbf{u}}{\partial n} &= 0 \\
+p &= p_{ref} = 0 \, \text{Pa} \\
+\frac{\partial k}{\partial n} &= 0 \\
+\frac{\partial \omega}{\partial n} &= 0 \\
+\frac{\partial \nu_t}{\partial n} &= 0
+\end{align}
+
+\subsubsection{Walls (Airfoil)}
+\begin{align}
+\mathbf{u} &= \mathbf{0} \quad \text{(no-slip)} \\
+\frac{\partial p}{\partial n} &= 0 \\
+k &= k_{wall} \quad \text{(kqRWallFunction)} \\
+\omega &= \omega_{wall} \quad \text{(omegaWallFunction)} \\
+\nu_t &= \nu_{t,wall} \quad \text{(nutkWallFunction)}
+\end{align}
+
+% ================================================================================
+\section{Force Coefficient Calculation}
+% ================================================================================
+
+\subsection{Pressure and Viscous Forces}
+\begin{equation}
+\mathbf{F} = \int_{\Gamma_{wall}} \left(p \mathbf{n} + \boldsymbol{\tau} \cdot \mathbf{n}\right) dS
+\end{equation}
+
+where $\boldsymbol{\tau}$ is the viscous stress tensor:
+\begin{equation}
+\boldsymbol{\tau} = \mu \left(\nabla \mathbf{u} + (\nabla \mathbf{u})^T - \frac{2}{3}(\nabla \cdot \mathbf{u})\mathbf{I}\right)
+\end{equation}
+
+\subsection{Drag Coefficient}
+\begin{equation}
+C_d = \frac{F_d}{\frac{1}{2}\rho_\infty U_\infty^2 S_{ref}}
+\end{equation}
+
+where:
+\begin{align}
+F_d &= \mathbf{F} \cdot \mathbf{e}_x \quad \text{(drag force)} \\
+\rho_\infty &= 1.225 \, \text{kg/m}^3 \quad \text{(reference density)} \\
+U_\infty &= 30 \, \text{m/s} \quad \text{(reference velocity)} \\
+S_{ref} &= c = 35.0492 \, \text{m} \quad \text{(reference chord length)}
+\end{align}
+
+% ================================================================================
+\section{Gradient Computation}
+% ================================================================================
+
+\subsection{Forward Finite Difference Formula}
+\begin{equation}
+\frac{\partial f}{\partial u_i} \approx \frac{f(\mathbf{u} + h \mathbf{e}_i) - f(\mathbf{u})}{h}
+\end{equation}
+
+where:
+\begin{align}
+h &= 1 \times 10^{-6} \quad \text{(step size)} \\
+\mathbf{e}_i &= \text{unit vector in direction of design variable } i \\
+f(\mathbf{u}) &= C_d(\mathbf{u}) \quad \text{(objective function)}
+\end{align}
+
+\subsection{Gradient Vector}
+\begin{equation}
+\nabla f = \begin{bmatrix}
+\frac{\partial f}{\partial u_1} \\
+\frac{\partial f}{\partial u_2} \\
+\frac{\partial f}{\partial u_3} \\
+\frac{\partial f}{\partial u_4}
+\end{bmatrix}
+\end{equation}
+
+\subsection{Computational Cost}
+For each gradient evaluation:
+\begin{equation}
+N_{CFD} = 1 + n_{dv} = 1 + 4 = 5 \text{ CFD simulations}
+\end{equation}
+
+where $n_{dv} = 4$ is the number of design variables.
+
+% ================================================================================
+\section{SLSQP Optimization Algorithm}
+% ================================================================================
+
+\subsection{Sequential Quadratic Programming}
+At each iteration $k$, solve the quadratic subproblem:
+\begin{align}
+\min_{\mathbf{p}} \quad &\nabla f(\mathbf{x}^k)^T \mathbf{p} + \frac{1}{2} \mathbf{p}^T \mathbf{B}^k \mathbf{p} \\
+\text{subject to} \quad &\mathbf{x}^L \leq \mathbf{x}^k + \mathbf{p} \leq \mathbf{x}^U
+\end{align}
+
+where $\mathbf{B}^k$ is the BFGS approximation of the Hessian.
+
+\subsection{BFGS Hessian Update}
+\begin{equation}
+\mathbf{B}^{k+1} = \mathbf{B}^k + \frac{\mathbf{y}^k (\mathbf{y}^k)^T}{(\mathbf{y}^k)^T \mathbf{s}^k} - \frac{\mathbf{B}^k \mathbf{s}^k (\mathbf{s}^k)^T \mathbf{B}^k}{(\mathbf{s}^k)^T \mathbf{B}^k \mathbf{s}^k}
+\end{equation}
+
+where:
+\begin{align}
+\mathbf{s}^k &= \mathbf{x}^{k+1} - \mathbf{x}^k \\
+\mathbf{y}^k &= \nabla f(\mathbf{x}^{k+1}) - \nabla f(\mathbf{x}^k)
+\end{align}
+
+\subsection{Line Search}
+Find step size $\alpha^k$ satisfying the Armijo condition:
+\begin{equation}
+f(\mathbf{x}^k + \alpha^k \mathbf{p}^k) \leq f(\mathbf{x}^k) + c_1 \alpha^k (\nabla f(\mathbf{x}^k))^T \mathbf{p}^k
+\end{equation}
+
+where $c_1 = 10^{-4}$ is the Armijo parameter.
+
+\subsection{Design Variable Update}
+\begin{equation}
+\mathbf{x}^{k+1} = \mathbf{x}^k + \alpha^k \mathbf{p}^k
+\end{equation}
+
+% ================================================================================
+\section{Convergence Criteria}
+% ================================================================================
+
+\subsection{Gradient Norm Tolerance}
+\begin{equation}
+\|\nabla f(\mathbf{x}^k)\| < \epsilon_g = 1 \times 10^{-6}
+\end{equation}
+
+\subsection{Step Size Tolerance}
+\begin{equation}
+\|\mathbf{x}^{k+1} - \mathbf{x}^k\| < \epsilon_x = 1 \times 10^{-6}
+\end{equation}
+
+\subsection{Objective Function Tolerance}
+\begin{equation}
+|f(\mathbf{x}^{k+1}) - f(\mathbf{x}^k)| < \epsilon_f = 1 \times 10^{-9}
+\end{equation}
+
+\subsection{Maximum Iterations}
+\begin{equation}
+k \leq k_{max} = 100
+\end{equation}
+
+% ================================================================================
+\section{Example Iteration Calculation}
+% ================================================================================
+
+\subsection{Current State (Iteration $k=5$)}
+\begin{align}
+\mathbf{x}^5 &= [0.05, -0.02, 0.03, -0.01]^T \\
+f(\mathbf{x}^5) &= C_d = 0.012589
+\end{align}
+
+\subsection{Gradient Computation}
+\begin{align}
+\frac{\partial f}{\partial u_1} &= \frac{C_d([0.050001, -0.02, 0.03, -0.01]) - 0.012589}{10^{-6}} = \frac{0.012592 - 0.012589}{10^{-6}} = 3.0 \\
+\frac{\partial f}{\partial u_2} &= \frac{C_d([0.05, -0.019999, 0.03, -0.01]) - 0.012589}{10^{-6}} = \frac{0.012585 - 0.012589}{10^{-6}} = -4.0 \\
+\frac{\partial f}{\partial u_3} &= \frac{C_d([0.05, -0.02, 0.030001, -0.01]) - 0.012589}{10^{-6}} = \frac{0.012591 - 0.012589}{10^{-6}} = 2.0 \\
+\frac{\partial f}{\partial u_4} &= \frac{C_d([0.05, -0.02, 0.03, -0.009999]) - 0.012589}{10^{-6}} = \frac{0.012587 - 0.012589}{10^{-6}} = -2.0
+\end{align}
+
+\subsection{Gradient Vector}
+\begin{equation}
+\nabla f(\mathbf{x}^5) = [3.0, -4.0, 2.0, -2.0]^T
+\end{equation}
+
+\subsection{Search Direction}
+Solve: $\mathbf{B}^5 \mathbf{p}^5 = -\nabla f(\mathbf{x}^5)$
+\begin{equation}
+\mathbf{p}^5 = [-0.0024, 0.0032, -0.0016, 0.0016]^T
+\end{equation}
+
+\subsection{Line Search Result}
+\begin{equation}
+\alpha^5 = 0.8
+\end{equation}
+
+\subsection{Design Variable Update}
+\begin{align}
+\mathbf{x}^6 &= \mathbf{x}^5 + \alpha^5 \mathbf{p}^5 \\
+&= [0.05, -0.02, 0.03, -0.01]^T + 0.8 \times [-0.0024, 0.0032, -0.0016, 0.0016]^T \\
+&= [0.04808, -0.01744, 0.02872, -0.00872]^T
+\end{align}
+
+\subsection{Convergence Check}
+\begin{align}
+\|\nabla f(\mathbf{x}^5)\| &= \sqrt{3.0^2 + (-4.0)^2 + 2.0^2 + (-2.0)^2} = \sqrt{33} = 5.745 \\
+\|\mathbf{x}^6 - \mathbf{x}^5\| &= \|[-0.00192, 0.00256, -0.00128, 0.00128]^T\| = 0.00435 \\
+|f(\mathbf{x}^6) - f(\mathbf{x}^5)| &\approx 1.3 \times 10^{-5}
+\end{align}
+
+Since $\|\nabla f(\mathbf{x}^5)\| = 5.745 > \epsilon_g = 10^{-6}$, continue optimization.
+
+% ================================================================================
+\section{FFD Shape Sensitivity}
+% ================================================================================
+
+\subsection{Chain Rule for Shape Sensitivity}
+\begin{equation}
+\frac{\partial C_d}{\partial u_i} = \frac{\partial C_d}{\partial \mathbf{x}} \cdot \frac{\partial \mathbf{x}}{\partial u_i}
+\end{equation}
+
+where $\frac{\partial \mathbf{x}}{\partial u_i}$ is the mesh sensitivity and $\frac{\partial C_d}{\partial \mathbf{x}}$ is the flow sensitivity.
+
+\subsection{Mesh Sensitivity (FFD)}
+\begin{equation}
+\frac{\partial \mathbf{x}}{\partial u_i} = \frac{\partial}{\partial u_i}\left[\mathbf{x}^0 + \sum_{j=0}^{1} \sum_{k=0}^{1} B_j(\eta) B_k(\zeta) \delta \mathbf{P}_{j,k} \right]
+\end{equation}
+
+For Y-direction only displacement:
+\begin{equation}
+\frac{\partial \mathbf{x}}{\partial u_i} = \begin{bmatrix} 0 \\ B_j(\eta) B_k(\zeta) \\ 0 \end{bmatrix}
+\end{equation}
+
+where $(j,k)$ corresponds to the control point associated with design variable $u_i$.
+
+\end{document}
