@@ -128,6 +128,22 @@ from .turbulence_models import (
     create_turbulence_model, TurbulenceModelConfig
 )
 
+# Mesh Adaptation and Refinement
+from .mesh_adaptation import (
+    ErrorEstimator, GradientJumpEstimator, ResidualBasedEstimator,
+    ShockDetector, MeshRefiner, SolutionInterpolator, MeshAdaptationManager,
+    AdaptationMetrics, RefinementType, AdaptationStrategy,
+    create_mesh_adaptation_manager, MeshAdaptationConfig
+)
+
+# Parallel Computing with MPI
+from .parallel_computing import (
+    DomainDecomposer, GeometricDecomposer, GraphBasedDecomposer,
+    MPICommunicator, LoadBalancer, ParallelSolver, DomainPartition,
+    DecompositionMethod, CommunicationPattern, ParallelConfig,
+    create_parallel_solver
+)
+
 # Utilities
 from .utils import utilities
 
