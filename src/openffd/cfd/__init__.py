@@ -144,6 +144,20 @@ from .parallel_computing import (
     create_parallel_solver
 )
 
+# OpenMP Threading for Shared Memory Parallelization
+from .openmp_threading import (
+    ParallelKernels, ThreadScheduler, PerformanceProfiler, OpenMPManager,
+    ThreadSafeData, ThreadingMetrics, ThreadingStrategy, WorkDistribution,
+    create_openmp_manager, OpenMPConfig
+)
+
+# Memory Optimization and Cache Efficiency
+from .memory_optimization import (
+    CacheOptimizedArray, MemoryPool, DataStructureOptimizer, MemoryBandwidthAnalyzer,
+    MemoryManager, MemoryMetrics, DataLayout, MemoryPattern, AllocatorType,
+    create_memory_manager, MemoryConfig
+)
+
 # Utilities
 from .utils import utilities
 
