@@ -32,13 +32,12 @@ from .adjoint_boundary_conditions import (
 
 from .objective_functions import (
     ObjectiveFunction, DragObjective, LiftObjective,
-    PressureLossObjective, HeatTransferObjective,
-    CompositeObjective
+    PressureLossObjective, CompositeObjective
 )
 
 from .gradient_computation import (
-    SensitivityAnalysis, DesignGradient,
-    FiniteDifferenceValidation, CrossValidation
+    SensitivityAnalysis, DesignGradient, DesignVariable,
+    FiniteDifferenceValidation, GeometricSensitivity, SensitivityConfig
 )
 
 from .iterative_solvers import (
@@ -58,10 +57,11 @@ __all__ = [
     
     # Objective functions
     'ObjectiveFunction', 'DragObjective', 'LiftObjective', 'PressureLossObjective', 
-    'HeatTransferObjective', 'CompositeObjective',
+    'CompositeObjective',
     
     # Gradient computation
-    'SensitivityAnalysis', 'DesignGradient', 'FiniteDifferenceValidation', 'CrossValidation',
+    'SensitivityAnalysis', 'DesignGradient', 'DesignVariable', 'FiniteDifferenceValidation', 
+    'GeometricSensitivity', 'SensitivityConfig',
     
     # Iterative solvers
     'AdjointIterativeSolver', 'GMRESAdjointSolver', 'BiCGSTABAdjointSolver', 'PreconditionedSolver'
