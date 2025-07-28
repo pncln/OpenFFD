@@ -516,27 +516,67 @@ class OpenFOAMPolyMeshReader:
         """Validate mesh data consistency."""
         logger.info("Validating mesh data...")
         
+        # Check basic dimensions
+        if mesh_data.n_points == 0:
+            raise ValueError("No points in mesh")
+        if mesh_data.n_faces == 0:
+            raise ValueError("No faces in mesh")
+        if mesh_data.n_cells == 0:
+            raise ValueError("No cells in mesh")
+        
         # Check point indices in faces
-        max_point_index = np.max([np.max(face) for face in mesh_data.faces if face])
-        if max_point_index >= mesh_data.n_points:
-            raise ValueError(f"Face references point {max_point_index} but only {mesh_data.n_points} points exist")
+        if mesh_data.faces:
+            non_empty_faces = [face for face in mesh_data.faces if face]
+            if non_empty_faces:
+                all_point_indices = []
+                for face in non_empty_faces:
+                    all_point_indices.extend(face)
+                
+                if all_point_indices:
+                    max_point_index = max(all_point_indices)
+                    min_point_index = min(all_point_indices)
+                    
+                    if max_point_index >= mesh_data.n_points:
+                        raise ValueError(f"Face references point {max_point_index} but only {mesh_data.n_points} points exist")
+                    if min_point_index < 0:
+                        raise ValueError(f"Face references negative point index {min_point_index}")
         
         # Check owner/neighbour consistency
+        if len(mesh_data.owner) != mesh_data.n_faces:
+            raise ValueError(f"Owner array has {len(mesh_data.owner)} entries but {mesh_data.n_faces} faces exist")
+        
         max_owner = np.max(mesh_data.owner)
+        min_owner = np.min(mesh_data.owner)
         if max_owner >= mesh_data.n_cells:
             raise ValueError(f"Owner references cell {max_owner} but only {mesh_data.n_cells} cells exist")
+        if min_owner < 0:
+            raise ValueError(f"Owner references negative cell index {min_owner}")
         
         if len(mesh_data.neighbour) > 0:
             max_neighbour = np.max(mesh_data.neighbour)
+            min_neighbour = np.min(mesh_data.neighbour)
             if max_neighbour >= mesh_data.n_cells:
                 raise ValueError(f"Neighbour references cell {max_neighbour} but only {mesh_data.n_cells} cells exist")
+            if min_neighbour < 0:
+                raise ValueError(f"Neighbour references negative cell index {min_neighbour}")
+        
+        # Check consistency between internal faces and neighbour array
+        if len(mesh_data.neighbour) != mesh_data.n_internal_faces:
+            logger.warning(f"Neighbour array has {len(mesh_data.neighbour)} entries but {mesh_data.n_internal_faces} internal faces expected")
         
         # Check boundary patch consistency
         total_boundary_faces = sum(patch.n_faces for patch in mesh_data.boundary_patches)
         if total_boundary_faces != mesh_data.n_boundary_faces:
             logger.warning(f"Boundary patches have {total_boundary_faces} faces but {mesh_data.n_boundary_faces} boundary faces expected")
         
-        logger.info("Mesh validation completed")
+        # Check boundary patch face indices
+        for patch in mesh_data.boundary_patches:
+            if patch.start_face + patch.n_faces > mesh_data.n_faces:
+                raise ValueError(f"Boundary patch {patch.name} extends beyond face array")
+            if patch.start_face < 0:
+                raise ValueError(f"Boundary patch {patch.name} has negative start face")
+        
+        logger.info("Mesh validation completed successfully")
     
     def _compute_mesh_quality(self, mesh_data: OpenFOAMMeshData) -> Dict[str, Any]:
         """Compute basic mesh quality metrics."""
@@ -586,39 +626,134 @@ class OpenFOAMPolyMeshReader:
         """Convert OpenFOAM mesh to our internal unstructured mesh format."""
         logger.info("Converting to internal mesh format...")
         
+        # Extract complete cell topology
+        cell_data = self._extract_cells_from_faces(mesh_data)
+        
+        # Create boundary patch dictionary with proper face indexing
+        boundary_patches = {}
+        for patch in mesh_data.boundary_patches:
+            face_indices = list(range(patch.start_face, patch.start_face + patch.n_faces))
+            
+            # Ensure face indices are valid
+            valid_face_indices = [idx for idx in face_indices if idx < len(mesh_data.faces)]
+            if len(valid_face_indices) != len(face_indices):
+                logger.warning(f"Patch {patch.name}: {len(face_indices) - len(valid_face_indices)} invalid face indices")
+            
+            boundary_patches[patch.name] = {
+                'type': patch.patch_type,
+                'faces': valid_face_indices,
+                'start_face': patch.start_face,
+                'n_faces': len(valid_face_indices)
+            }
+        
         # Create internal mesh representation
         internal_mesh = {
             'vertices': mesh_data.points,
             'faces': mesh_data.faces,
-            'cells': self._extract_cells_from_faces(mesh_data),
-            'boundary_patches': {patch.name: {
-                'type': patch.patch_type,
-                'faces': list(range(patch.start_face, patch.start_face + patch.n_faces))
-            } for patch in mesh_data.boundary_patches},
+            'cells': cell_data['cells_vertices'],  # Cell-vertex connectivity
+            'triangulated_faces': cell_data['triangulated_faces'],  # For visualization
+            'boundary_patches': boundary_patches,
             'mesh_quality': mesh_data.mesh_quality,
+            'connectivity': {
+                'owner': mesh_data.owner,
+                'neighbour': mesh_data.neighbour,
+                'n_internal_faces': mesh_data.n_internal_faces,
+                'n_boundary_faces': mesh_data.n_boundary_faces,
+                'cells_faces': cell_data['cells_faces']  # Cell-face connectivity
+            },
             'openfoam_data': mesh_data
         }
         
-        logger.info("Mesh conversion completed")
+        # Add mesh statistics
+        internal_mesh['mesh_statistics'] = {
+            'n_vertices': len(mesh_data.points),
+            'n_faces': len(mesh_data.faces),
+            'n_cells': len(cell_data['cells_vertices']),
+            'n_valid_cells': cell_data['n_valid_cells'],
+            'n_triangulated_faces': len(cell_data['triangulated_faces']),
+            'n_boundary_patches': len(boundary_patches)
+        }
+        
+        logger.info(f"Mesh conversion completed: {internal_mesh['mesh_statistics']}")
         
         return internal_mesh
     
-    def _extract_cells_from_faces(self, mesh_data: OpenFOAMMeshData) -> List[List[int]]:
-        """Extract cell definitions from face connectivity."""
-        # This is a simplified approach - in reality, we'd need to properly
-        # reconstruct cells from the face-cell connectivity
+    def _extract_cells_from_faces(self, mesh_data: OpenFOAMMeshData) -> Dict[str, Any]:
+        """Extract complete cell topology from face connectivity."""
+        logger.info("Extracting complete cell topology...")
         
-        cells = [[] for _ in range(mesh_data.n_cells)]
+        # Initialize cell data structures
+        cells_faces = [[] for _ in range(mesh_data.n_cells)]
+        cells_vertices = [set() for _ in range(mesh_data.n_cells)]
         
-        # Add faces to cells based on owner/neighbour
+        # Build cell-face connectivity
+        logger.info("Building cell-face connectivity...")
         for face_idx, owner_cell in enumerate(mesh_data.owner):
-            cells[owner_cell].append(face_idx)
+            if owner_cell < mesh_data.n_cells:
+                cells_faces[owner_cell].append(face_idx)
+                # Add vertices from this face to the cell
+                if face_idx < len(mesh_data.faces):
+                    cells_vertices[owner_cell].update(mesh_data.faces[face_idx])
         
+        # Add internal faces to neighbour cells
         for face_idx, neighbour_cell in enumerate(mesh_data.neighbour):
-            if face_idx < len(mesh_data.neighbour):
-                cells[neighbour_cell].append(face_idx)
+            if neighbour_cell < mesh_data.n_cells:
+                cells_faces[neighbour_cell].append(face_idx)
+                # Add vertices from this face to the cell
+                if face_idx < len(mesh_data.faces):
+                    cells_vertices[neighbour_cell].update(mesh_data.faces[face_idx])
         
-        return cells
+        # Convert vertex sets to sorted lists
+        cells_vertex_lists = [sorted(list(vertices)) for vertices in cells_vertices]
+        
+        # Create triangulated faces for visualization
+        logger.info("Creating triangulated faces for visualization...")
+        triangulated_faces = []
+        
+        # For each cell, create triangulated faces from its faces
+        for cell_idx in range(mesh_data.n_cells):
+            cell_face_indices = cells_faces[cell_idx]
+            
+            for face_idx in cell_face_indices:
+                if face_idx < len(mesh_data.faces):
+                    face = mesh_data.faces[face_idx]
+                    
+                    # Triangulate face if it has more than 3 vertices
+                    if len(face) == 3:
+                        triangulated_faces.append(face)
+                    elif len(face) == 4:
+                        # Split quad into two triangles
+                        triangulated_faces.append([face[0], face[1], face[2]])
+                        triangulated_faces.append([face[0], face[2], face[3]])
+                    elif len(face) > 4:
+                        # Fan triangulation for polygons
+                        for i in range(1, len(face) - 1):
+                            triangulated_faces.append([face[0], face[i], face[i+1]])
+        
+        # Remove duplicate triangles (internal faces appear twice)
+        logger.info("Removing duplicate triangular faces...")
+        unique_triangles = []
+        triangle_set = set()
+        
+        for triangle in triangulated_faces:
+            # Sort vertices to create a canonical representation
+            sorted_triangle = tuple(sorted(triangle))
+            if sorted_triangle not in triangle_set:
+                triangle_set.add(sorted_triangle)
+                unique_triangles.append(triangle)
+        
+        logger.info(f"Created {len(unique_triangles)} unique triangular faces from {len(triangulated_faces)} total faces")
+        
+        # Validate cells
+        valid_cells = sum(1 for vertices in cells_vertex_lists if len(vertices) >= 3)
+        logger.info(f"Extracted {valid_cells}/{len(cells_vertex_lists)} valid cells")
+        
+        return {
+            'cells_vertices': cells_vertex_lists,
+            'cells_faces': cells_faces,
+            'triangulated_faces': unique_triangles,
+            'n_valid_cells': valid_cells
+        }
 
 
 def read_openfoam_mesh(polymesh_dir: Union[str, Path]) -> Dict[str, Any]:

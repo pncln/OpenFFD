@@ -1,0 +1,54 @@
+================================================================================
+CYLINDER SHAPE OPTIMIZATION REPORT
+================================================================================
+
+CASE INFORMATION:
+  Case: cylinder_flow_optimization
+  Description: Shape optimization of cylinder in cross-flow using discrete adjoint method
+  Date: 2025-07-28 13:30:29
+
+MESH INFORMATION:
+  Points: 5000
+  Faces: 9850
+  Cells: 2450
+  Boundary patches: symmetry1, symmetry2, cylinder, inout
+
+FLOW CONDITIONS:
+  Reynolds number: 100.0
+  Mach number: 0.1
+  Reference length: 1.0
+
+OPTIMIZATION SETUP:
+  Algorithm: slsqp
+  Design variables: 60
+  Parameterization: ffd
+  Max iterations: 2
+
+OPTIMIZATION RESULTS:
+  Status: SUCCESS
+  Message: Optimization terminated successfully
+  Iterations: 1
+  Function evaluations: 12
+  Total time: 35.72s
+
+OBJECTIVE FUNCTION:
+  Initial: 2.535335e-02
+  Final: 2.535336e-02
+  Improvement: -0.00%
+
+PERFORMANCE BREAKDOWN:
+  CFD solver time: 0.01s (0.0%)
+  Adjoint solver time: 1.17s (3.3%)
+  Mesh deformation time: 0.93s
+  Average iteration time: 35.723s
+
+DESIGN VARIABLE ANALYSIS:
+  Low importance: 49 variables
+  Medium importance: 8 variables
+  High importance: 3 variables
+
+CONSTRAINT VALUES:
+  volume_preservation: 242.512549
+  minimum_thickness: 0.100000
+
+================================================================================

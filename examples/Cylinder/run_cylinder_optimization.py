@@ -536,17 +536,17 @@ class CylinderOptimizationRunner:
                 'boundary_patches': list(self.mesh_data['boundary_patches'].keys())
             },
             'optimization_result': {
-                'success': result.success,
-                'message': result.message,
-                'n_iterations': result.n_iterations,
-                'n_function_evaluations': result.n_function_evaluations,
+                'success': bool(result.success),
+                'message': str(result.message),
+                'n_iterations': int(result.n_iterations),
+                'n_function_evaluations': int(result.n_function_evaluations),
                 'optimal_objective': float(result.optimal_objective),
                 'objective_history': [float(x) for x in result.objective_history],
-                'gradient_norm_history': [float(x) for x in result.gradient_norm_history],
-                'optimal_design': result.optimal_design.tolist(),
-                'total_time': result.total_time,
-                'cfd_time': result.cfd_time,
-                'adjoint_time': result.adjoint_time
+                'gradient_norm_history': [float(x) for x in result.gradient_norm_history] if result.gradient_norm_history else [],
+                'optimal_design': result.optimal_design.tolist() if hasattr(result.optimal_design, 'tolist') else list(result.optimal_design),
+                'total_time': float(result.total_time),
+                'cfd_time': float(result.cfd_time),
+                'adjoint_time': float(result.adjoint_time)
             }
         }
         
