@@ -62,6 +62,10 @@ class OpenFOAMMeshData:
     n_internal_faces: int
     n_boundary_faces: int
     
+    # Mesh type information
+    mesh_type: str = "unstructured"  # "structured", "unstructured", "hybrid"
+    mesh_dimensions: int = 3  # 2 or 3
+    
     # Optional zone data
     cell_zones: Optional[Dict[str, List[int]]] = None
     face_zones: Optional[Dict[str, List[int]]] = None
@@ -218,6 +222,9 @@ class OpenFOAMPolyMeshReader:
         n_internal_faces = len(neighbour)
         n_boundary_faces = n_faces - n_internal_faces
         
+        # Detect mesh type and dimensions
+        mesh_type, mesh_dimensions = self._detect_mesh_type(points, faces)
+        
         # Create mesh data structure
         mesh_data = OpenFOAMMeshData(
             points=points,
@@ -230,6 +237,8 @@ class OpenFOAMPolyMeshReader:
             n_cells=n_cells,
             n_internal_faces=n_internal_faces,
             n_boundary_faces=n_boundary_faces,
+            mesh_type=mesh_type,
+            mesh_dimensions=mesh_dimensions,
             cell_zones=cell_zones,
             face_zones=face_zones,
             point_zones=point_zones
@@ -578,6 +587,44 @@ class OpenFOAMPolyMeshReader:
         
         logger.info("Mesh validation completed successfully")
     
+    def _detect_mesh_type(self, points: np.ndarray, faces: List[List[int]]) -> Tuple[str, int]:
+        """Detect mesh type (structured/unstructured/hybrid) and dimensions."""
+        logger.info("Detecting mesh type and dimensions...")
+        
+        # Analyze face types
+        face_types = {}
+        for face in faces:
+            n_vertices = len(face)
+            face_types[n_vertices] = face_types.get(n_vertices, 0) + 1
+        
+        total_faces = len(faces)
+        triangles = face_types.get(3, 0)
+        quads = face_types.get(4, 0)
+        hexs = face_types.get(6, 0)
+        other = total_faces - triangles - quads - hexs
+        
+        # Determine mesh dimensions
+        z_coords = points[:, 2]
+        z_range = np.max(z_coords) - np.min(z_coords)
+        mesh_dimensions = 2 if z_range < 0.1 else 3
+        
+        # Determine mesh type based on face distribution
+        quad_percentage = quads / total_faces * 100
+        tri_percentage = triangles / total_faces * 100
+        
+        if quad_percentage > 80:
+            mesh_type = "structured"
+        elif tri_percentage > 60:
+            mesh_type = "unstructured"
+        else:
+            mesh_type = "hybrid"
+        
+        logger.info(f"Mesh type: {mesh_type}")
+        logger.info(f"Mesh dimensions: {mesh_dimensions}D")
+        logger.info(f"Face distribution: {triangles} triangles ({tri_percentage:.1f}%), {quads} quads ({quad_percentage:.1f}%), {other} other")
+        
+        return mesh_type, mesh_dimensions
+    
     def _compute_mesh_quality(self, mesh_data: OpenFOAMMeshData) -> Dict[str, Any]:
         """Compute basic mesh quality metrics."""
         logger.info("Computing mesh quality metrics...")
@@ -670,8 +717,10 @@ class OpenFOAMPolyMeshReader:
             'n_faces': len(mesh_data.faces),
             'n_cells': len(cell_data['cells_vertices']),
             'n_valid_cells': cell_data['n_valid_cells'],
-            'n_triangulated_faces': len(cell_data['triangulated_faces']),
-            'n_boundary_patches': len(boundary_patches)
+            'n_visualization_faces': len(cell_data['triangulated_faces']),
+            'n_boundary_patches': len(boundary_patches),
+            'mesh_type': mesh_data.mesh_type,
+            'mesh_dimensions': mesh_data.mesh_dimensions
         }
         
         logger.info(f"Mesh conversion completed: {internal_mesh['mesh_statistics']}")
@@ -680,7 +729,7 @@ class OpenFOAMPolyMeshReader:
     
     def _extract_cells_from_faces(self, mesh_data: OpenFOAMMeshData) -> Dict[str, Any]:
         """Extract complete cell topology from face connectivity."""
-        logger.info("Extracting complete cell topology...")
+        logger.info(f"Extracting complete cell topology for {mesh_data.mesh_type} mesh...")
         
         # Initialize cell data structures
         cells_faces = [[] for _ in range(mesh_data.n_cells)]
@@ -706,8 +755,60 @@ class OpenFOAMPolyMeshReader:
         # Convert vertex sets to sorted lists
         cells_vertex_lists = [sorted(list(vertices)) for vertices in cells_vertices]
         
-        # Create triangulated faces for visualization
-        logger.info("Creating triangulated faces for visualization...")
+        # Create faces for visualization based on mesh type
+        if mesh_data.mesh_type == "structured":
+            visualization_faces = self._create_structured_faces(mesh_data, cells_faces)
+        else:
+            visualization_faces = self._create_unstructured_faces(mesh_data, cells_faces)
+        
+        # Validate cells
+        valid_cells = sum(1 for vertices in cells_vertex_lists if len(vertices) >= 3)
+        logger.info(f"Extracted {valid_cells}/{len(cells_vertex_lists)} valid cells")
+        
+        return {
+            'cells_vertices': cells_vertex_lists,
+            'cells_faces': cells_faces,
+            'triangulated_faces': visualization_faces,
+            'n_valid_cells': valid_cells,
+            'mesh_type': mesh_data.mesh_type
+        }
+    
+    def _create_structured_faces(self, mesh_data: OpenFOAMMeshData, cells_faces: List[List[int]]) -> List[List[int]]:
+        """Create visualization faces for structured mesh (preserve quad structure)."""
+        logger.info("Creating structured mesh faces for visualization...")
+        
+        # For structured mesh, we want to show all boundary faces as quads
+        # and optionally some internal faces for wireframe view
+        visualization_faces = []
+        face_set = set()
+        
+        # Add all boundary faces (preserve quad structure)
+        boundary_face_start = mesh_data.n_internal_faces
+        for face_idx in range(boundary_face_start, mesh_data.n_faces):
+            if face_idx < len(mesh_data.faces):
+                face = mesh_data.faces[face_idx]
+                face_tuple = tuple(sorted(face))
+                if face_tuple not in face_set:
+                    face_set.add(face_tuple)
+                    visualization_faces.append(face)
+        
+        # Add selected internal faces for wireframe (every Nth face)
+        internal_step = max(1, mesh_data.n_internal_faces // 1000)  # Sample internal faces
+        for face_idx in range(0, mesh_data.n_internal_faces, internal_step):
+            if face_idx < len(mesh_data.faces):
+                face = mesh_data.faces[face_idx]
+                face_tuple = tuple(sorted(face))
+                if face_tuple not in face_set:
+                    face_set.add(face_tuple)
+                    visualization_faces.append(face)
+        
+        logger.info(f"Created {len(visualization_faces)} faces for structured mesh visualization")
+        return visualization_faces
+    
+    def _create_unstructured_faces(self, mesh_data: OpenFOAMMeshData, cells_faces: List[List[int]]) -> List[List[int]]:
+        """Create triangulated faces for unstructured mesh."""
+        logger.info("Creating triangulated faces for unstructured mesh...")
+        
         triangulated_faces = []
         
         # For each cell, create triangulated faces from its faces
@@ -743,17 +844,7 @@ class OpenFOAMPolyMeshReader:
                 unique_triangles.append(triangle)
         
         logger.info(f"Created {len(unique_triangles)} unique triangular faces from {len(triangulated_faces)} total faces")
-        
-        # Validate cells
-        valid_cells = sum(1 for vertices in cells_vertex_lists if len(vertices) >= 3)
-        logger.info(f"Extracted {valid_cells}/{len(cells_vertex_lists)} valid cells")
-        
-        return {
-            'cells_vertices': cells_vertex_lists,
-            'cells_faces': cells_faces,
-            'triangulated_faces': unique_triangles,
-            'n_valid_cells': valid_cells
-        }
+        return unique_triangles
 
 
 def read_openfoam_mesh(polymesh_dir: Union[str, Path]) -> Dict[str, Any]:

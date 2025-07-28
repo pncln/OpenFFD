@@ -113,17 +113,21 @@ class CylinderVisualizationGenerator:
         
         if self.mesh_data:
             vertices = self.mesh_data['vertices']
-            # Use triangulated faces for better visualization
+            mesh_stats = self.mesh_data.get('mesh_statistics', {})
+            mesh_type = mesh_stats.get('mesh_type', 'unknown')
+            mesh_dims = mesh_stats.get('mesh_dimensions', 3)
+            
+            # Use appropriate faces for visualization
             if 'triangulated_faces' in self.mesh_data:
                 faces = self.mesh_data['triangulated_faces']
-                print(f"Using {len(faces)} triangulated faces for visualization")
+                print(f"Using {len(faces)} visualization faces for {mesh_type} {mesh_dims}D mesh")
             else:
                 faces = self.mesh_data['faces']
-                print(f"Using {len(faces)} original faces for visualization")
+                print(f"Using {len(faces)} original faces for {mesh_type} {mesh_dims}D mesh")
             
             # Plot 1: Full mesh overview
             self._plot_mesh_overview(axes[0], vertices, faces)
-            axes[0].set_title('Full Mesh Overview')
+            axes[0].set_title(f'Full Mesh Overview ({mesh_type.title()} {mesh_dims}D)')
             axes[0].set_xlabel('X')
             axes[0].set_ylabel('Y')
             axes[0].set_aspect('equal')
@@ -131,7 +135,7 @@ class CylinderVisualizationGenerator:
             
             # Plot 2: Zoomed view around cylinder
             self._plot_cylinder_detail(axes[1], vertices, faces)
-            axes[1].set_title('Cylinder Region Detail')
+            axes[1].set_title(f'Cylinder Region Detail ({len(faces)} faces)')
             axes[1].set_xlabel('X')
             axes[1].set_ylabel('Y')
             axes[1].set_aspect('equal')
