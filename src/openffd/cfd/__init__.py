@@ -158,6 +158,34 @@ from .memory_optimization import (
     create_memory_manager, MemoryConfig
 )
 
+# Convergence Monitoring and Residual Tracking
+from .convergence_monitoring import (
+    ConvergenceMonitor, ResidualComputer, ConvergenceAnalyzer, ResidualData,
+    ConvergenceMetrics, ConvergenceConfig, ResidualNorm, ConvergenceStatus,
+    StoppingCriterion, create_convergence_monitor
+)
+
+# Supersonic Validation Cases for CFD Testing
+from .validation_cases import (
+    ValidationCase, ValidationResult, ValidationSuite, FlowConditions, GeometryParameters,
+    ObliqueShockCase, BowShockCase, NozzleFlowCase, ShockTubeCase,
+    CaseType, FlowRegime
+)
+
+# Shape Optimization Framework Using Adjoint Gradients
+from .shape_optimization import (
+    ShapeOptimizer, DesignParameterization, FreeFormDeformation, BSplineParameterization,
+    DesignVariable, OptimizationConstraint, OptimizationResult, OptimizationConfig,
+    ParameterizationType, OptimizationAlgorithm, ConstraintType,
+    create_shape_optimizer
+)
+
+# OpenFOAM polyMesh Reader
+from .openfoam_mesh_reader import (
+    OpenFOAMPolyMeshReader, OpenFOAMMeshData, OpenFOAMBoundaryPatch,
+    read_openfoam_mesh
+)
+
 # Utilities
 from .utils import utilities
 
