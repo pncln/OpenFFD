@@ -1,0 +1,252 @@
+# Cylinder Shape Optimization Configuration
+
+# Case Information
+case_name: "cylinder_flow_optimization"
+description: "Shape optimization of cylinder in cross-flow using discrete adjoint method"
+version: "1.0"
+
+# Mesh Configuration
+mesh:
+  type: "openfoam_polymesh"
+  path: "polyMesh"
+  validation:
+    check_quality: true
+    quality_threshold: 0.1
+    
+# Flow Conditions
+flow_conditions:
+  reynolds_number: 100.0
+  mach_number: 0.1  # Low Mach for incompressible approximation
+  reference_length: 1.0  # Cylinder diameter
+  reference_velocity: 1.0
+  reference_density: 1.0
+  reference_pressure: 101325.0
+  reference_temperature: 288.15
+
+# Boundary Conditions
+boundary_conditions:
+  cylinder:
+    type: "wall"
+    condition: "no_slip"
+    temperature: "adiabatic"
+  inout:
+    type: "farfield"
+    velocity: [1.0, 0.0, 0.0]
+    pressure: 101325.0
+    temperature: 288.15
+  symmetry1:
+    type: "symmetry"
+  symmetry2:
+    type: "symmetry"
+
+# Shape Parameterization
+parameterization:
+  type: "free_form_deformation"
+  ffd_box:
+    n_control_points: [4, 3, 2]  # nx, ny, nz
+    box_bounds:
+      x_min: -1.5
+      x_max: 1.5
+      y_min: -1.2
+      y_max: 1.2
+      z_min: -0.05
+      z_max: 0.15
+  design_variables:
+    total_count: 60
+    active_variables:
+      # Allow movement except for fixed boundary points
+      fix_leading_edge: true
+      fix_trailing_edge: true
+      fix_symmetry_planes: true
+    bounds:
+      displacement_magnitude: 0.2  # Maximum displacement as fraction of cylinder diameter
+
+# Optimization Algorithm
+optimization:
+  algorithm: "slsqp"  # Sequential Least Squares Programming
+  max_iterations: 50
+  convergence_tolerance: 1.0e-6
+  gradient_tolerance: 1.0e-6
+  step_tolerance: 1.0e-8
+  
+  # Line search parameters
+  line_search:
+    method: "strong_wolfe"
+    max_step: 1.0
+    
+  # Finite difference settings (for gradient verification)
+  finite_difference:
+    step_size: 1.0e-6
+    method: "forward"
+
+# Objective Functions
+objectives:
+  primary:
+    name: "drag_minimization"
+    type: "drag_coefficient"
+    weight: 1.0
+    target: "minimize"
+    reference_area: 1.0  # Cylinder diameter × depth
+    
+  secondary:
+    - name: "lift_constraint"
+      type: "lift_coefficient"
+      weight: 0.0  # Constraint, not objective
+      target: "constraint"
+      bounds: [-0.1, 0.1]  # Small lift acceptable for symmetric flow
+      
+# Constraints
+constraints:
+  geometric:
+    - name: "volume_preservation"
+      type: "volume"
+      tolerance: 0.05  # 5% volume change allowed
+      weight: 100.0
+      
+    - name: "minimum_thickness"
+      type: "thickness"
+      minimum_value: 0.1  # Minimum cylinder thickness
+      tolerance: 0.01
+      weight: 1000.0
+      
+    - name: "smoothness"
+      type: "curvature"
+      maximum_curvature: 10.0
+      weight: 10.0
+      
+  aerodynamic:
+    - name: "stagnation_pressure"
+      type: "pressure_recovery"
+      minimum_recovery: 0.95
+      tolerance: 0.02
+      
+# CFD Solver Settings
+cfd_solver:
+  equations: "navier_stokes"
+  turbulence_model: "laminar"  # Low Re flow
+  solver_type: "incompressible"
+  
+  # Numerical schemes
+  discretization:
+    convection: "upwind"
+    diffusion: "central"
+    time: "euler_implicit"
+    
+  # Convergence criteria
+  convergence:
+    residual_tolerance: 1.0e-6
+    max_iterations: 1000
+    monitoring_variables: ["velocity", "pressure"]
+    
+  # Boundary layer resolution
+  mesh_requirements:
+    y_plus_target: 1.0
+    boundary_layer_growth_rate: 1.2
+
+# Adjoint Solver Settings
+adjoint_solver:
+  method: "discrete_adjoint"
+  solver_type: "gmres"
+  preconditioner: "ilu"
+  
+  # Convergence criteria
+  convergence:
+    residual_tolerance: 1.0e-8
+    max_iterations: 500
+    
+  # Boundary condition treatment
+  boundary_treatment:
+    wall: "characteristic"
+    farfield: "riemann_invariant"
+    symmetry: "symmetry"
+
+# Parallelization
+parallel:
+  enable: true
+  mpi_processes: 4
+  openmp_threads: 2
+  domain_decomposition: "geometric"
+  load_balancing: true
+
+# Memory Management
+memory:
+  optimization_level: "balanced"  # "speed" or "memory" or "balanced"
+  cache_optimization: true
+  memory_pool_size: "1GB"
+
+# Output and Monitoring
+output:
+  directory: "results"
+  save_frequency: 5  # Save every 5 iterations
+  save_intermediate_meshes: true
+  save_flow_solutions: true
+  
+  # What to save
+  save_options:
+    optimization_history: true
+    design_variables: true
+    objective_values: true
+    constraint_values: true
+    gradients: true
+    mesh_quality: true
+    convergence_data: true
+    
+  # Visualization
+  visualization:
+    create_plots: true
+    plot_formats: ["png", "pdf"]
+    animation: true
+    
+  # Reporting
+  reporting:
+    generate_final_report: true
+    include_validation: true
+    include_sensitivity_analysis: true
+
+# Validation and Verification
+validation:
+  gradient_verification:
+    enable: true
+    variables_to_check: 5  # Check first 5 design variables
+    finite_difference_step: 1.0e-6
+    tolerance: 0.01  # 1% error acceptable
+    
+  mesh_convergence:
+    enable: false  # Skip for this case
+    refinement_levels: [1, 2, 4]
+    
+  benchmark_comparison:
+    enable: true
+    reference_data: "schafer_turek_1996"
+    tolerance: 0.1
+
+# Advanced Options
+advanced:
+  # Optimization restart
+  restart:
+    enable: true
+    checkpoint_frequency: 10
+    
+  # Robust optimization
+  robust_optimization:
+    enable: false  # Disable for basic case
+    uncertainty_samples: 10
+    
+  # Multi-objective
+  multi_objective:
+    enable: false  # Single objective for this case
+    
+  # Adaptive mesh refinement
+  adaptive_mesh:
+    enable: false  # Use provided mesh
+    
+  # Custom post-processing
+  post_processing:
+    custom_functions: []
+    
+# Debug and Development
+debug:
+  verbose_output: true
+  save_debug_info: true
+  profiling: true
+  memory_tracking: true
