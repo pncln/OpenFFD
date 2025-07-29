@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "total_issues": 4,
+    "critical_issues": 0,
+    "error_issues": 1,
+    "warning_issues": 3
+  },
+  "issues": [
+    "WARNING: CFD simulation did not converge",
+    "WARNING: Stagnation point x-location seems wrong: 0.319, expected \u2248 -0.5",
+    "WARNING: Poor residual reduction: 2.69e+00",
+    "ERROR: Large pressure error vs analytical: 495.2%"
+  ],
+  "results": {
+    "basic_simulation": {
+      "success": true,
+      "drag_coefficient": 0.012676676416183063,
+      "lift_coefficient": 0.0,
+      "converged": 
