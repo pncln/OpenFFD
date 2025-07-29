@@ -589,58 +589,6 @@ class CylinderOptimizationRunner:
             # Fallback to original implementation
             return self._run_fallback_time_integration(max_iterations, convergence_tolerance)
     
-    def _setup_cfd_boundary_conditions(self, cfd_solver):
-        """Setup boundary conditions for the CFD solver using OpenFOAM data."""
-        from openffd.cfd.navier_stokes_solver import BoundaryCondition, BoundaryType
-        import numpy as np
-        
-        # Get OpenFOAM boundary condition data
-        boundary_data = self._get_openfoam_boundary_conditions()
-        
-        print("        Setting up CFD boundary conditions...")
-        
-        # Cylinder wall boundary condition
-        cylinder_velocity = boundary_data['cylinder']['velocity']
-        if np.allclose(cylinder_velocity, [0.0, 0.0, 0.0], atol=1e-10):
-            cylinder_bc = BoundaryCondition(
-                boundary_type=BoundaryType.WALL,
-                velocity=np.array([0.0, 0.0, 0.0])
-            )
-            cfd_solver.set_boundary_condition('cylinder', cylinder_bc)
-            print(f"          - Cylinder: no-slip wall (U = {cylinder_velocity})")
-        
-        # Farfield boundary condition
-        farfield_velocity = boundary_data['inout']['velocity']
-        farfield_pressure = boundary_data['inout']['pressure']
-        
-        # Convert to proper reference values
-        flow_config = self.config.get('flow_conditions', {})
-        reference_pressure = flow_config.get('reference_pressure', 101325.0)
-        
-        farfield_bc = BoundaryCondition(
-            boundary_type=BoundaryType.FARFIELD,
-            velocity=np.array(farfield_velocity),
-            pressure=reference_pressure + farfield_pressure
-        )
-        cfd_solver.set_boundary_condition('inout', farfield_bc)
-        print(f"          - Farfield: U = {farfield_velocity}, p = {farfield_pressure}")
-        
-        # Symmetry boundary conditions
-        for symmetry_name in ['symmetry1', 'symmetry2']:
-            if symmetry_name in boundary_data:
-                # Determine symmetry normal based on patch name and geometry
-                if '1' in symmetry_name:
-                    normal = np.array([0.0, 1.0, 0.0])  # Y-normal
-                else:
-                    normal = np.array([0.0, 0.0, 1.0])  # Z-normal
-                    
-                symmetry_bc = BoundaryCondition(
-                    boundary_type=BoundaryType.SYMMETRY,
-                    normal_vector=normal
-                )
-                cfd_solver.set_boundary_condition(symmetry_name, symmetry_bc)
-                print(f"          - {symmetry_name}: symmetry (normal = {normal})")
-    
     def _get_openfoam_boundary_conditions(self):
         """Extract boundary condition data from OpenFOAM parser."""
         boundary_data = {

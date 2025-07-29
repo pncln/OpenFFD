@@ -180,26 +180,92 @@ class UniversalOpenFOAMBCManager:
         """Parse boundaryField section from OpenFOAM field file."""
         boundary_bcs = {}
         
-        # Find boundaryField section
-        boundary_match = re.search(r'boundaryField\s*{([^}]+(?:{[^}]*}[^}]*)*)}', content, re.DOTALL)
-        if not boundary_match:
+        # Find boundaryField section using a more robust approach
+        boundary_start = content.find('boundaryField')
+        if boundary_start == -1:
             return boundary_bcs
             
-        boundary_content = boundary_match.group(1)
-        
-        # Find each patch
-        patch_pattern = r'(\w+)\s*{([^}]+(?:{[^}]*}[^}]*)*)}'
-        patch_matches = re.finditer(patch_pattern, boundary_content)
-        
-        for patch_match in patch_matches:
-            patch_name = patch_match.group(1)
-            patch_content = patch_match.group(2)
+        # Find opening brace
+        brace_start = content.find('{', boundary_start)
+        if brace_start == -1:
+            return boundary_bcs
             
-            bc = self._parse_patch_bc(patch_name, patch_content, field_name)
-            if bc:
-                boundary_bcs[patch_name] = bc
+        # Find matching closing brace by counting braces
+        brace_count = 0
+        brace_end = brace_start
+        for i, char in enumerate(content[brace_start:]):
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    brace_end = brace_start + i
+                    break
+                    
+        if brace_count != 0:
+            return boundary_bcs
+            
+        boundary_content = content[brace_start+1:brace_end]
+        
+        # Parse patches using line-by-line approach
+        boundary_bcs = self._parse_patches_line_by_line(boundary_content, field_name)
                 
         return boundary_bcs
+        
+    def _parse_patches_line_by_line(self, boundary_content: str, field_name: str) -> Dict[str, OpenFOAMFieldBC]:
+        """Parse patches using line-by-line approach for robustness."""
+        boundary_bcs = {}
+        lines = boundary_content.split('\n')
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Skip empty lines and comments
+            if not line or line.startswith('//') or line.startswith('/*'):
+                i += 1
+                continue
+                
+            # Check if this line is a potential patch name (alphanumeric word)
+            # and the next line contains an opening brace
+            if (line.replace('_', '').replace('1', '').replace('2', '').isalpha() and 
+                i + 1 < len(lines) and '{' in lines[i + 1]):
+                
+                patch_name = line
+                # Find patch content starting from the brace line
+                patch_content, next_i = self._extract_patch_content(lines, i + 1)
+                if patch_content:
+                    bc = self._parse_patch_bc(patch_name, patch_content, field_name)
+                    if bc:
+                        boundary_bcs[patch_name] = bc
+                i = next_i
+                
+            else:
+                i += 1
+                
+        return boundary_bcs
+        
+    def _extract_patch_content(self, lines: List[str], start_line: int) -> Tuple[str, int]:
+        """Extract content of a patch definition."""
+        content_lines = []
+        brace_count = 0
+        
+        # Start from the line with the patch name
+        first_line = lines[start_line].strip()
+        if '{' in first_line:
+            brace_count += first_line.count('{')
+            brace_count -= first_line.count('}')
+            
+        i = start_line + 1
+        while i < len(lines) and brace_count > 0:
+            line = lines[i].strip()
+            if line:
+                content_lines.append(line)
+                brace_count += line.count('{')
+                brace_count -= line.count('}')
+            i += 1
+            
+        return '\n'.join(content_lines), i
         
     def _parse_patch_bc(self, patch_name: str, patch_content: str, field_name: str) -> Optional[OpenFOAMFieldBC]:
         """Parse boundary condition for a specific patch."""
