@@ -395,11 +395,19 @@ class CylinderOptimizationRunner:
             self.cfd_solver.conservative_variables[:, 4] = p_inf / (0.4) + 0.5 * rho_inf * u_inf**2  # total energy
     
     def _compute_drag_coefficient(self):
-        """Compute drag coefficient from CFD solution."""
-        # Simplified drag computation - in practice would integrate pressure/shear on cylinder surface
+        """Compute drag coefficient from proper CFD solution."""
+        # Use proper CFD solver if available
+        if hasattr(self, 'cfd_solver_instance') and self.cfd_solver_instance is not None:
+            try:
+                forces = self.cfd_solver_instance.compute_forces()
+                drag_coefficient = forces['drag_coefficient']
+                print(f"        CFD drag coefficient: {drag_coefficient:.6f}")
+                return drag_coefficient
+            except Exception as e:
+                print(f"        Warning: CFD force computation failed: {e}")
+                
+        # Fallback to physics-based model
         reynolds = self.config.get('flow_conditions', {}).get('reynolds_number', 100.0)
-        
-        # Use physics-based model as approximation
         base_drag = self._cylinder_drag_model(reynolds)
         
         # Add small perturbations based on flow field if available
@@ -411,16 +419,28 @@ class CylinderOptimizationRunner:
         return base_drag
     
     def _compute_lift_coefficient(self):
-        """Compute lift coefficient from CFD solution."""
-        # For symmetric cylinder flow, lift should be near zero
+        """Compute lift coefficient from proper CFD solution."""
+        # Use proper CFD solver if available
+        if hasattr(self, 'cfd_solver_instance') and self.cfd_solver_instance is not None:
+            try:
+                forces = self.cfd_solver_instance.compute_forces()
+                lift_coefficient = forces['lift_coefficient']
+                print(f"        CFD lift coefficient: {lift_coefficient:.6f}")
+                return lift_coefficient
+            except Exception as e:
+                print(f"        Warning: CFD force computation failed: {e}")
+                
+        # Fallback: For symmetric cylinder flow, lift should be near zero
         if hasattr(self.cfd_solver, 'pressure') and len(self.cfd_solver.pressure) > 0:
             # Small asymmetry due to numerical effects or shape deformation
             pressure_asymmetry = np.random.randn() * 0.01  # Small random component
             return pressure_asymmetry
         return 0.0
-    
-    def _run_time_integration_with_history(self, max_iterations, convergence_tolerance):
-        """Run CFD time integration with proper OpenFOAM boundary conditions."""
+        
+    def _run_fallback_time_integration(self, max_iterations, convergence_tolerance):
+        """Fallback time integration using simplified approach."""
+        print("        Using fallback CFD approach...")
+        
         history = []
         
         try:
@@ -480,7 +500,7 @@ class CylinderOptimizationRunner:
                 print(f"        Did not converge after {max_iterations} time steps (final residual: {current_residual:.2e})")
                 
         except Exception as e:
-            print(f"        Warning: Time integration failed: {e}")
+            print(f"        Warning: Fallback time integration failed: {e}")
             # Return at least one time step
             if not history:
                 n_vertices = len(self.mesh_data['vertices'])
@@ -495,6 +515,81 @@ class CylinderOptimizationRunner:
                 }]
         
         return history
+    
+    def _run_time_integration_with_history(self, max_iterations, convergence_tolerance):
+        """Run CFD time integration with proper Navier-Stokes solver."""
+        print("        Starting proper CFD simulation with Navier-Stokes equations...")
+        
+        try:
+            # Import proper Navier-Stokes solver from main source
+            from src.openffd.cfd.navier_stokes_solver import NavierStokesSolver, FlowProperties, BoundaryCondition, BoundaryType
+            
+            # Setup flow properties
+            flow_config = self.config.get('flow_conditions', {})
+            flow_properties = FlowProperties(
+                reynolds_number=flow_config.get('reynolds_number', 100.0),
+                mach_number=flow_config.get('mach_number', 0.1),
+                reference_velocity=flow_config.get('reference_velocity', 1.0),
+                reference_density=flow_config.get('reference_density', 1.0),
+                reference_pressure=flow_config.get('reference_pressure', 101325.0),
+                reference_temperature=flow_config.get('reference_temperature', 288.15),
+                reference_length=flow_config.get('reference_length', 1.0)
+            )
+            
+            # Create Navier-Stokes solver
+            cfd_solver = NavierStokesSolver(self.mesh_data, flow_properties)
+            
+            # Setup boundary conditions from OpenFOAM data
+            self._setup_cfd_boundary_conditions(cfd_solver)
+            
+            # Solve steady-state Navier-Stokes equations
+            print(f"        Solving Navier-Stokes equations (Re={flow_properties.reynolds_number:.1e}) using SIMPLE algorithm...")
+            solution_result = cfd_solver.solve_steady_state(
+                max_iterations=max_iterations,
+                convergence_tolerance=convergence_tolerance
+            )
+            
+            # Extract solution history
+            history = []
+            for step_data in solution_result['history']:
+                # Convert to expected format
+                n_vertices = len(self.mesh_data['vertices'])
+                
+                # Get current flow field (approximate - in real implementation would store each step)
+                flow_field = solution_result['flow_field']
+                
+                time_step_data = {
+                    'time_step': step_data['iteration'],
+                    'time': step_data['time'],
+                    'pressure': flow_field.pressure.copy(),
+                    'velocity': flow_field.velocity.copy(),
+                    'temperature': flow_field.temperature.copy(),
+                    'residual': step_data['total_residual'],
+                    'converged': step_data['converged'],
+                    'velocity_residual': step_data['velocity_residual'],
+                    'pressure_residual': step_data['pressure_residual']
+                }
+                history.append(time_step_data)
+                
+            # Print final results
+            if solution_result['converged']:
+                print(f"        ✓ CFD converged after {solution_result['iterations']} iterations")
+                print(f"        Final residual: {solution_result['final_residual']:.2e}")
+            else:
+                print(f"        ⚠ CFD did not fully converge after {solution_result['iterations']} iterations")
+                print(f"        Final residual: {solution_result['final_residual']:.2e}")
+                
+            # Store CFD solver for force computation
+            self.cfd_solver_instance = cfd_solver
+            
+            return history
+            
+        except Exception as e:
+            print(f"        Error: Proper CFD solver failed: {e}")
+            print("        Falling back to simplified approach...")
+            
+            # Fallback to original implementation
+            return self._run_fallback_time_integration(max_iterations, convergence_tolerance)
     
     def _get_openfoam_boundary_conditions(self):
         """Extract boundary condition data from OpenFOAM parser."""
