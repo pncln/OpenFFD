@@ -522,7 +522,7 @@ class CylinderOptimizationRunner:
         
         try:
             # Import proper Navier-Stokes solver from main source
-            from src.openffd.cfd.navier_stokes_solver import NavierStokesSolver, FlowProperties, BoundaryCondition, BoundaryType
+            from openffd.cfd.navier_stokes_solver import NavierStokesSolver, FlowProperties, BoundaryCondition, BoundaryType
             
             # Setup flow properties
             flow_config = self.config.get('flow_conditions', {})
@@ -536,11 +536,9 @@ class CylinderOptimizationRunner:
                 reference_length=flow_config.get('reference_length', 1.0)
             )
             
-            # Create Navier-Stokes solver
-            cfd_solver = NavierStokesSolver(self.mesh_data, flow_properties)
-            
-            # Setup boundary conditions from OpenFOAM data
-            self._setup_cfd_boundary_conditions(cfd_solver)
+            # Create Navier-Stokes solver with automatic OpenFOAM BC detection
+            case_directory = Path.cwd()  # Current working directory should be the case directory
+            cfd_solver = NavierStokesSolver(self.mesh_data, flow_properties, str(case_directory))
             
             # Solve steady-state Navier-Stokes equations
             print(f"        Solving Navier-Stokes equations (Re={flow_properties.reynolds_number:.1e}) using SIMPLE algorithm...")
@@ -560,14 +558,14 @@ class CylinderOptimizationRunner:
                 
                 time_step_data = {
                     'time_step': step_data['iteration'],
-                    'time': step_data['time'],
+                    'time': step_data['iteration'] * 1e-5,  # Approximate physical time
                     'pressure': flow_field.pressure.copy(),
                     'velocity': flow_field.velocity.copy(),
                     'temperature': flow_field.temperature.copy(),
                     'residual': step_data['total_residual'],
                     'converged': step_data['converged'],
-                    'velocity_residual': step_data['velocity_residual'],
-                    'pressure_residual': step_data['pressure_residual']
+                    'velocity_residual': step_data.get('velocity_residual', 0.0),
+                    'pressure_residual': step_data.get('pressure_residual', 0.0)
                 }
                 history.append(time_step_data)
                 
@@ -590,6 +588,58 @@ class CylinderOptimizationRunner:
             
             # Fallback to original implementation
             return self._run_fallback_time_integration(max_iterations, convergence_tolerance)
+    
+    def _setup_cfd_boundary_conditions(self, cfd_solver):
+        """Setup boundary conditions for the CFD solver using OpenFOAM data."""
+        from openffd.cfd.navier_stokes_solver import BoundaryCondition, BoundaryType
+        import numpy as np
+        
+        # Get OpenFOAM boundary condition data
+        boundary_data = self._get_openfoam_boundary_conditions()
+        
+        print("        Setting up CFD boundary conditions...")
+        
+        # Cylinder wall boundary condition
+        cylinder_velocity = boundary_data['cylinder']['velocity']
+        if np.allclose(cylinder_velocity, [0.0, 0.0, 0.0], atol=1e-10):
+            cylinder_bc = BoundaryCondition(
+                boundary_type=BoundaryType.WALL,
+                velocity=np.array([0.0, 0.0, 0.0])
+            )
+            cfd_solver.set_boundary_condition('cylinder', cylinder_bc)
+            print(f"          - Cylinder: no-slip wall (U = {cylinder_velocity})")
+        
+        # Farfield boundary condition
+        farfield_velocity = boundary_data['inout']['velocity']
+        farfield_pressure = boundary_data['inout']['pressure']
+        
+        # Convert to proper reference values
+        flow_config = self.config.get('flow_conditions', {})
+        reference_pressure = flow_config.get('reference_pressure', 101325.0)
+        
+        farfield_bc = BoundaryCondition(
+            boundary_type=BoundaryType.FARFIELD,
+            velocity=np.array(farfield_velocity),
+            pressure=reference_pressure + farfield_pressure
+        )
+        cfd_solver.set_boundary_condition('inout', farfield_bc)
+        print(f"          - Farfield: U = {farfield_velocity}, p = {farfield_pressure}")
+        
+        # Symmetry boundary conditions
+        for symmetry_name in ['symmetry1', 'symmetry2']:
+            if symmetry_name in boundary_data:
+                # Determine symmetry normal based on patch name and geometry
+                if '1' in symmetry_name:
+                    normal = np.array([0.0, 1.0, 0.0])  # Y-normal
+                else:
+                    normal = np.array([0.0, 0.0, 1.0])  # Z-normal
+                    
+                symmetry_bc = BoundaryCondition(
+                    boundary_type=BoundaryType.SYMMETRY,
+                    normal_vector=normal
+                )
+                cfd_solver.set_boundary_condition(symmetry_name, symmetry_bc)
+                print(f"          - {symmetry_name}: symmetry (normal = {normal})")
     
     def _get_openfoam_boundary_conditions(self):
         """Extract boundary condition data from OpenFOAM parser."""

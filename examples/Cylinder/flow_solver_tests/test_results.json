@@ -1,19 +1,18 @@
 {
   "summary": {
-    "total_issues": 4,
-    "critical_issues": 0,
+    "total_issues": 3,
+    "critical_issues": 1,
     "error_issues": 1,
-    "warning_issues": 3
+    "warning_issues": 1
   },
   "issues": [
-    "WARNING: CFD simulation did not converge",
+    "CRITICAL: Drag coefficient is non-positive",
     "WARNING: Stagnation point x-location seems wrong: 0.319, expected \u2248 -0.5",
-    "WARNING: Poor residual reduction: 2.69e+00",
-    "ERROR: Large pressure error vs analytical: 495.2%"
+    "ERROR: Analytical comparison failed: boolean index did not match indexed array along axis 0; size of axis is 2450 but size of corresponding boolean axis is 5000"
   ],
   "results": {
     "basic_simulation": {
       "success": true,
-      "drag_coefficient": 0.012676676416183063,
+      "drag_coefficient": 0.0,
       "lift_coefficient": 0.0,
       "converged": 
