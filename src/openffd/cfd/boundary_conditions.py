@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 
+# Import OpenFOAM boundary condition parser
+from .openfoam_boundary_parser import OpenFOAMBoundaryParser, parse_openfoam_boundary_conditions
+
 logger = logging.getLogger(__name__)
 
 
@@ -678,6 +681,133 @@ def create_boundary_patch(patch_id: int,
     return patch
 
 
+def create_boundary_manager_from_openfoam(case_directory: str, 
+                                         flow_config: Optional[Dict[str, float]] = None) -> BoundaryConditionManager:
+    """
+    Create boundary condition manager from OpenFOAM case directory.
+    
+    Args:
+        case_directory: Path to OpenFOAM case directory
+        flow_config: Optional flow configuration overrides
+        
+    Returns:
+        Configured boundary condition manager
+    """
+    # Parse OpenFOAM boundary conditions
+    openfoam_bcs = parse_openfoam_boundary_conditions(case_directory)
+    
+    # Extract flow conditions from OpenFOAM data or use defaults
+    if flow_config is None:
+        flow_config = {}
+        
+    # Create boundary condition configuration
+    config = BoundaryConditionConfig(
+        mach_number=flow_config.get('mach_number', 0.1),
+        reynolds_number=flow_config.get('reynolds_number', 100.0),
+        angle_of_attack=flow_config.get('angle_of_attack', 0.0),
+        reference_pressure=flow_config.get('reference_pressure', 101325.0),
+        reference_temperature=flow_config.get('reference_temperature', 288.15),
+        reference_density=flow_config.get('reference_density', 1.225),
+        reference_velocity=flow_config.get('reference_velocity', 1.0)
+    )
+    
+    # Create boundary condition manager
+    bc_manager = BoundaryConditionManager(config)
+    
+    # Convert OpenFOAM patches to boundary patches
+    patches = openfoam_bcs['summary']['patch_names']
+    
+    for patch_id, patch_name in enumerate(patches):
+        # Determine boundary type from OpenFOAM conditions
+        bc_type = _determine_boundary_type_from_openfoam(patch_name, openfoam_bcs['patches'][patch_name])
+        
+        # Extract boundary-specific parameters
+        kwargs = _extract_boundary_parameters_from_openfoam(patch_name, openfoam_bcs['patches'][patch_name])
+        
+        # Create boundary patch (face IDs would come from mesh reader)
+        patch = create_boundary_patch(
+            patch_id=patch_id,
+            patch_name=patch_name,
+            boundary_type=bc_type,
+            face_ids=[],  # Will be populated by mesh reader
+            **kwargs
+        )
+        
+        bc_manager.add_boundary_patch(patch)
+        
+    logger.info(f"Created boundary condition manager with {len(patches)} patches from OpenFOAM case")
+    
+    return bc_manager
+
+
+def _determine_boundary_type_from_openfoam(patch_name: str, openfoam_patch_data: Dict[str, Any]) -> str:
+    """Determine boundary type from OpenFOAM patch data."""
+    
+    # Check velocity boundary condition to determine type
+    if 'U' in openfoam_patch_data:
+        u_bc_type = openfoam_patch_data['U']['type']
+        
+        if u_bc_type == 'fixedValue':
+            # Check if velocity is zero (wall) or non-zero (inlet)
+            velocity_value = openfoam_patch_data['U']['parameters'].get('value', [0, 0, 0])
+            if isinstance(velocity_value, list) and all(v == 0 for v in velocity_value):
+                return 'wall'
+            else:
+                return 'inlet'
+        elif u_bc_type in ['inletOutlet', 'outletInlet']:
+            return 'farfield'
+        elif u_bc_type == 'symmetry':
+            return 'symmetry'
+        elif u_bc_type == 'zeroGradient':
+            return 'outlet'
+    
+    # Fallback: determine from patch name
+    patch_lower = patch_name.lower()
+    if 'wall' in patch_lower or 'cylinder' in patch_lower:
+        return 'wall'
+    elif 'symmetry' in patch_lower:
+        return 'symmetry'
+    elif 'inlet' in patch_lower or 'inflow' in patch_lower:
+        return 'inlet'
+    elif 'outlet' in patch_lower or 'outflow' in patch_lower:
+        return 'outlet'
+    elif 'farfield' in patch_lower or 'freestream' in patch_lower or 'inout' in patch_lower:
+        return 'farfield'
+    else:
+        return 'wall'  # Default to wall
+
+
+def _extract_boundary_parameters_from_openfoam(patch_name: str, openfoam_patch_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract boundary-specific parameters from OpenFOAM data."""
+    kwargs = {}
+    
+    # Extract velocity values for inlet boundaries
+    if 'U' in openfoam_patch_data:
+        u_params = openfoam_patch_data['U']['parameters']
+        if 'inletValue' in u_params:
+            velocity = u_params['inletValue']
+            if isinstance(velocity, list) and len(velocity) >= 3:
+                kwargs['prescribed_values'] = {
+                    'u': velocity[0], 'v': velocity[1], 'w': velocity[2]
+                }
+        elif 'value' in u_params and u_params['value'] != '$internalField':
+            velocity = u_params['value']
+            if isinstance(velocity, list) and len(velocity) >= 3:
+                kwargs['prescribed_values'] = {
+                    'u': velocity[0], 'v': velocity[1], 'w': velocity[2]
+                }
+    
+    # Extract pressure values for outlet boundaries
+    if 'p' in openfoam_patch_data:
+        p_params = openfoam_patch_data['p']['parameters']
+        if 'outletValue' in p_params:
+            kwargs['static_pressure'] = p_params['outletValue']
+        elif 'value' in p_params and isinstance(p_params['value'], (int, float)):
+            kwargs['static_pressure'] = p_params['value']
+    
+    return kwargs
+
+
 def test_boundary_conditions():
     """Test boundary condition implementations."""
     print("Testing 3D Boundary Conditions:")
@@ -756,6 +886,44 @@ def test_boundary_conditions():
         primitive = bc._conservative_to_primitive(ghost_state)
         print(f"    {patch.boundary_type.value:10s}: rho={primitive[0]:.3f}, "
               f"u={primitive[1]:.1f}, p={primitive[4]:.0f}, T={primitive[5]:.1f}")
+
+
+def test_openfoam_boundary_integration():
+    """Test OpenFOAM boundary condition integration."""
+    print("Testing OpenFOAM Boundary Condition Integration:")
+    
+    case_dir = "/Users/pncln/Documents/tubitak/verynew/ffd_gen/examples/Cylinder"
+    
+    try:
+        # Create boundary manager from OpenFOAM case
+        bc_manager = create_boundary_manager_from_openfoam(
+            case_dir,
+            flow_config={
+                'mach_number': 0.1,
+                'reynolds_number': 100.0,
+                'reference_velocity': 10.0,
+                'reference_pressure': 0.0,  # Gauge pressure
+                'reference_temperature': 288.15
+            }
+        )
+        
+        # Get statistics
+        stats = bc_manager.get_boundary_statistics()
+        print(f"  Created boundary manager with {stats['n_patches']} patches:")
+        
+        for bc_type, info in stats['patch_types'].items():
+            print(f"    {bc_type}: {info['count']} patches, {info['faces']} faces")
+        
+        # List individual patches
+        print(f"\n  Patch details:")
+        for patch_id, patch in bc_manager.boundary_patches.items():
+            print(f"    {patch.patch_name}: {patch.boundary_type.value}")
+            
+        return bc_manager
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        return None
 
 
 if __name__ == "__main__":

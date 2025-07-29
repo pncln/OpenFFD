@@ -1,42 +1,55 @@
 {
   "case_name": "cylinder_flow_optimization",
-  "timestamp": "2025-07-28T13:39:03.081076",
+  "timestamp": "2025-07-29T12:58:06.147960",
   "configuration": {
-    "case_name": "cylinder_flow_optimization",
-    "description": "Shape optimization of cylinder in cross-flow using discrete adjoint method",
-    "version": "1.0",
-    "mesh": {
-      "type": "openfoam_polymesh",
-      "path": "polyMesh",
-      "validation": {
-        "check_quality": true,
-        "quality_threshold": 0.1
-      }
+    "adjoint_solver": {
+      "boundary_treatment": {
+        "farfield": "riemann_invariant",
+        "symmetry": "symmetry",
+        "wall": "characteristic"
+      },
+      "convergence": {
+        "max_iterations": 500,
+        "residual_tolerance": 1e-08
+      },
+      "method": "discrete_adjoint",
+      "preconditioner": "ilu",
+      "solver_type": "gmres"
     },
-    "flow_conditions": {
-      "reynolds_number": 100.0,
-      "mach_number": 0.1,
-      "reference_length": 1.0,
-      "reference_velocity": 1.0,
-      "reference_density": 1.0,
-      "reference_pressure": 101325.0,
-      "reference_temperature": 288.15
+    "advanced": {
+      "adaptive_mesh": {
+        "enable": false
+      },
+      "multi_objective": {
+        "enable": false
+      },
+      "post_processing": {
+        "custom_functions": []
+      },
+      "restart": {
+        "checkpoint_frequency": 10,
+        "enable": true
+      },
+      "robust_optimization": {
+        "enable": false,
+        "uncertainty_samples": 10
+      }
     },
     "boundary_conditions": {
       "cylinder": {
-        "type": "wall",
         "condition": "no_slip",
-        "temperature": "adiabatic"
+        "temperature": "adiabatic",
+        "type": "wall"
       },
       "inout": {
+        "pressure": 101325.0,
+        "temperature": 288.15,
         "type": "farfield",
         "velocity": [
           1.0,
           0.0,
           0.0
-        ],
-        "pressure": 101325.0,
-        "temperature": 288.15
+        ]
       },
       "symmetry1": {
         "type": "symmetry"
@@ -45,184 +58,200 @@
         "type": "symmetry"
       }
     },
-    "parameterization": {
-      "type": "free_form_deformation",
-      "ffd_box": {
-        "n_control_points": [
-          4,
-          3,
-          2
-        ],
-        "box_bounds": {
-          "x_min": -1.5,
-          "x_max": 1.5,
-          "y_min": -1.2,
-          "y_max": 1.2,
-          "z_min": -0.05,
-          "z_max": 0.15
-        }
-      },
-      "design_variables": {
-        "total_count": 60,
-        "active_variables": {
-          "fix_leading_edge": true,
-          "fix_trailing_edge": true,
-          "fix_symmetry_planes": true
-        },
-        "bounds": {
-          "displacement_magnitude": 0.2
-        }
-      }
-    },
-    "optimization": {
-      "algorithm": "slsqp",
-      "max_iterations": 50,
-      "convergence_tolerance": 1e-06,
-      "gradient_tolerance": 1e-06,
-      "step_tolerance": 1e-08,
-      "line_search": {
-        "method": "strong_wolfe",
-        "max_step": 1.0
-      },
-      "finite_difference": {
-        "step_size": 1e-06,
-        "method": "forward"
-      }
-    },
-    "objectives": {
-      "primary": {
-        "name": "drag_minimization",
-        "type": "drag_coefficient",
-        "weight": 1.0,
-        "target": "minimize",
-        "reference_area": 1.0
-      },
-      "secondary": [
-        {
-          "name": "lift_constraint",
-          "type": "lift_coefficient",
-          "weight": 0.0,
-          "target": "constraint",
-          "bounds": [
-            -0.1,
-            0.1
-          ]
-        }
-      ]
-    },
-    "constraints": {
-      "geometric": [
-        {
-          "name": "volume_preservation",
-          "type": "volume",
-          "tolerance": 0.05,
-          "weight": 100.0
-        },
-        {
-          "name": "minimum_thickness",
-          "type": "thickness",
-          "minimum_value": 0.1,
-          "tolerance": 0.01,
-          "weight": 1000.0
-        },
-        {
-          "name": "smoothness",
-          "type": "curvature",
-          "maximum_curvature": 10.0,
-          "weight": 10.0
-        }
-      ],
-      "aerodynamic": [
-        {
-          "name": "stagnation_pressure",
-          "type": "pressure_recovery",
-          "minimum_recovery": 0.95,
-          "tolerance": 0.02
-        }
-      ]
-    },
+    "case_name": "cylinder_flow_optimization",
     "cfd_solver": {
-      "equations": "navier_stokes",
-      "turbulence_model": "laminar",
-      "solver_type": "incompressible",
+      "convergence": {
+        "max_iterations": 200,
+        "monitoring_variables": [
+          "velocity",
+          "pressure"
+        ],
+        "residual_tolerance": 1e-06
+      },
       "discretization": {
         "convection": "upwind",
         "diffusion": "central",
         "time": "euler_implicit"
       },
-      "convergence": {
-        "residual_tolerance": 1e-06,
-        "max_iterations": 1000,
-        "monitoring_variables": [
-          "velocity",
-          "pressure"
-        ]
-      },
+      "equations": "navier_stokes",
       "mesh_requirements": {
-        "y_plus_target": 1.0,
-        "boundary_layer_growth_rate": 1.2
-      }
-    },
-    "adjoint_solver": {
-      "method": "discrete_adjoint",
-      "solver_type": "gmres",
-      "preconditioner": "ilu",
-      "convergence": {
-        "residual_tolerance": 1e-08,
-        "max_iterations": 500
+        "boundary_layer_growth_rate": 1.2,
+        "y_plus_target": 1.0
       },
-      "boundary_treatment": {
-        "wall": "characteristic",
-        "farfield": "riemann_invariant",
-        "symmetry": "symmetry"
-      }
+      "solver_type": "incompressible",
+      "turbulence_model": "laminar"
     },
-    "parallel": {
-      "enable": true,
-      "mpi_processes": 4,
-      "openmp_threads": 2,
-      "domain_decomposition": "geometric",
-      "load_balancing": true
+    "constraints": {
+      "aerodynamic": [
+        {
+          "minimum_recovery": 0.95,
+          "name": "stagnation_pressure",
+          "tolerance": 0.02,
+          "type": "pressure_recovery"
+        }
+      ],
+      "geometric": [
+        {
+          "name": "volume_preservation",
+          "tolerance": 0.05,
+          "type": "volume",
+          "weight": 100.0
+        },
+        {
+          "minimum_value": 0.1,
+          "name": "minimum_thickness",
+          "tolerance": 0.01,
+          "type": "thickness",
+          "weight": 1000.0
+        },
+        {
+          "maximum_curvature": 10.0,
+          "name": "smoothness",
+          "type": "curvature",
+          "weight": 10.0
+        }
+      ]
+    },
+    "debug": {
+      "memory_tracking": true,
+      "profiling": true,
+      "save_debug_info": true,
+      "verbose_output": true
+    },
+    "description": "Shape optimization of cylinder in cross-flow using discrete adjoint method",
+    "flow_conditions": {
+      "mach_number": 0.1,
+      "reference_density": 1.0,
+      "reference_length": 1.0,
+      "reference_pressure": 101325.0,
+      "reference_temperature": 288.15,
+      "reference_velocity": 1.0,
+      "reynolds_number": 100.0
     },
     "memory": {
-      "optimization_level": "balanced",
       "cache_optimization": true,
-      "memory_pool_size": "1GB"
+      "memory_pool_size": "1GB",
+      "optimization_level": "balanced"
+    },
+    "mesh": {
+      "path": "polyMesh",
+      "type": "openfoam_polymesh",
+      "validation": {
+        "check_quality": true,
+        "quality_threshold": 0.1
+      }
+    },
+    "objectives": {
+      "primary": {
+        "name": "drag_minimization",
+        "reference_area": 1.0,
+        "target": "minimize",
+        "type": "drag_coefficient",
+        "weight": 1.0
+      },
+      "secondary": [
+        {
+          "bounds": [
+            -0.1,
+            0.1
+          ],
+          "name": "lift_constraint",
+          "target": "constraint",
+          "type": "lift_coefficient",
+          "weight": 0.0
+        }
+      ]
+    },
+    "optimization": {
+      "algorithm": "slsqp",
+      "convergence_tolerance": 0.0001,
+      "finite_difference": {
+        "method": "forward",
+        "step_size": 1e-06
+      },
+      "gradient_tolerance": 0.0001,
+      "line_search": {
+        "max_step": 1.0,
+        "method": "strong_wolfe"
+      },
+      "max_iterations": 50,
+      "step_tolerance": 1e-06
     },
     "output": {
       "directory": "results",
+      "reporting": {
+        "generate_final_report": true,
+        "include_sensitivity_analysis": true,
+        "include_validation": true
+      },
+      "save_flow_solutions": true,
       "save_frequency": 5,
       "save_intermediate_meshes": true,
-      "save_flow_solutions": true,
       "save_options": {
-        "optimization_history": true,
-        "design_variables": true,
-        "objective_values": true,
         "constraint_values": true,
+        "convergence_data": true,
+        "design_variables": true,
         "gradients": true,
         "mesh_quality": true,
-        "convergence_data": true
+        "objective_values": true,
+        "optimization_history": true
       },
       "visualization": {
+        "animation": true,
         "create_plots": true,
         "plot_formats": [
           "png",
           "pdf"
-        ],
-        "animation": true
-      },
-      "reporting": {
-        "generate_final_report": true,
-        "include_validation": true,
-        "include_sensitivity_analysis": true
+        ]
       }
     },
+    "parallel": {
+      "domain_decomposition": "geometric",
+      "enable": true,
+      "load_balancing": true,
+      "mpi_processes": 5,
+      "openmp_threads": 2
+    },
+    "parameterization": {
+      "design_variables": {
+        "active_variables": {
+          "fix_leading_edge": true,
+          "fix_symmetry_planes": true,
+          "fix_trailing_edge": true
+        },
+        "bounds": {
+          "displacement_magnitude": 0.05
+        },
+        "total_count": 16
+      },
+      "ffd_box": {
+        "box_bounds": {
+          "x_max": 1.5,
+          "x_min": -1.5,
+          "y_max": 1.2,
+          "y_min": -1.2,
+          "z_max": 0.15,
+          "z_min": -0.05
+        },
+        "n_control_points": [
+          2,
+          4,
+          2
+        ]
+      },
+      "type": "free_form_deformation"
+    },
     "validation": {
+      "benchmark_comparison": {
+        "enable": true,
+        "reference_data": "schafer_turek_1996",
+        "tolerance": 0.1
+      },
       "gradient_verification": {
         "enable": true,
-        "variables_to_check": 5,
         "finite_difference_step": 1e-06,
-        "tolerance": 0.01
+        "tolerance": 0.01,
+        "variables_to_check": 5
       },
       "mesh_convergence": {
         "enable": false,
@@ -231,38 +260,9 @@
           2,
           4
         ]
-      },
-      "benchmark_comparison": {
-        "enable": true,
-        "reference_data": "schafer_turek_1996",
-        "tolerance": 0.1
       }
     },
-    "advanced": {
-      "restart": {
-        "enable": true,
-        "checkpoint_frequency": 10
-      },
-      "robust_optimization": {
-        "enable": false,
-        "uncertainty_samples": 10
-      },
-      "multi_objective": {
-        "enable": false
-      },
-      "adaptive_mesh": {
-        "enable": false
-      },
-      "post_processing": {
-        "custom_functions": []
-      }
-    },
-    "debug": {
-      "verbose_output": true,
-      "save_debug_info": true,
-      "profiling": true,
-      "memory_tracking": true
-    }
+    "version": "1.0"
   },
   "mesh_info": {
     "n_points": 5000,
@@ -280,88 +280,60 @@
     "message": "Optimization terminated successfully",
     "n_iterations": 1,
     "n_function_evaluations": 12,
-    "optimal_objective": 0.025353354025665895,
+    "optimal_objective": 0.025342932414258636,
     "objective_history": [
-      0.025353352832365606,
-      1.0279014841698022,
-      1.0256542602800582,
-      0.025367430957997903,
-      0.02535693605760989,
-      0.0253542807013701,
-      0.02535360085090965,
-      0.02535342285787355,
-      0.025353374341254724,
-      0.02535336020251277,
-      0.02535335566297992,
-      0.025353354025665895
+      0.025353352832366127,
+      0.019500418713160175,
+      0.02223105422989111,
+      0.023692983118634874,
+      0.02447160965250065,
+      0.024885404884084403,
+      0.025105089807839574,
+      0.025221662437057667,
+      0.025283504123478292,
+      0.025316306705767476,
+      0.02533370490480553,
+      0.025342932414258636
     ],
     "gradient_norm_history": [
-      1.4812785512044013
+      0.3218671147578315
     ],
     "optimal_design": [
-      -4.837583524903513e-06,
-      -6.378375961985781e-06,
-      3.9932366839100483e-07,
-      1.4682291750514075e-06,
-      1.289860276249072e-05,
-      7.470414351588697e-06,
-      -8.379429760757816e-06,
-      -2.022634796396912e-06,
-      5.247517244541265e-06,
-      1.0649560649137981e-05,
-      -1.5082582596204712e-06,
-      5.009360178692456e-06,
-      3.89708316955637e-07,
-      1.6852189430050822e-05,
-      -6.511284146687342e-06,
-      -2.767239244994378e-05,
-      1.6707928287232518e-05,
-      5.085260178409672e-06,
-      1.2154534691572921e-05,
-      -1.8038641853917088e-05,
-      -5.6003834197236264e-05,
-      -0.00028699251383540957,
-      -0.00015717555406560163,
-      3.56351238750192e-05,
-      2.4092076988988046e-05,
-      1.6390103646175403e-05,
-      -7.371548449548284e-06,
-      -1.1567647169059082e-05,
-      -2.223796610163419e-05,
-      1.1125882443100123e-05,
-      -1.1533326581051869e-05,
-      1.7390363300455506e-05,
-      2.475680256460916e-07,
-      5.128309215739955e-06,
-      4.066821381082208e-06,
-      1.006206057439865e-05,
-      -1.581383547939201e-05,
-      -3.9261908111820336e-05,
-      1.0890625723169333e-05,
-      -0.00019022575977325413,
-      -0.00015818687267126662,
-      4.7696045226227716e-05,
-      8.27162731248601e-06,
-      4.001399471332006e-06,
-      6.643748750796383e-06,
-      2.72709784196632e-06,
-      6.741770694738107e-07,
-      6.7932494618707086e-06,
-      1.8103634185812655e-06,
-      -5.046364110146875e-07,
-      -1.1137836506503189e-06,
-      -3.4277885765888103e-07,
-      -2.796123027344692e-06,
-      -5.4931185808132745e-06,
-      1.3216037923275211e-06,
-      5.987942543516667e-06,
-      -9.476390137827569e-07,
-      -1.018372414653801e-06,
-      -1.3056582180584833e-06,
-      2.4690347953266465e-06
+      0.0002067122166355048,
+      0.0,
+      0.00020902027630997534,
+      0.0,
+      0.00018050507242336534,
+      0.0,
+      0.0001717970352455824,
+      0.0,
+      -0.00018439341580528496,
+      0.0,
+      -0.00018092846295135391,
+      0.0,
+      -0.00021846248755114632,
+      0.0,
+      -0.0002187106429905973,
+      0.0,
+      2.965439495913292e-06,
+      0.0,
+      8.057654909004012e-06,
+      0.0,
+      -4.6284769357474626e-05,
+      0.0,
+      -4.4419005576357114e-05,
+      0.0,
+      3.8617238420359755e-05,
+      0.0,
+      3.7474484886363273e-05,
+      0.0,
+      -3.252087839094826e-05,
+      0.0,
+      -3.3514407935455216e-05,
+      0.0
     ],
-    "total_time": 35.93308401107788,
-    "cfd_time": 0.009186983108520508,
-    "adjoint_time": 1.1896998882293701
+    "total_time": 173.98689985275269,
+    "cfd_time": 115.45616912841797,
+    "adjoint_time": 0.8103189468383789
   }
 }

@@ -24,6 +24,9 @@ import re
 import logging
 from pathlib import Path
 
+# Import boundary condition parser
+from .openfoam_boundary_parser import OpenFOAMBoundaryParser, parse_openfoam_boundary_conditions
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +76,9 @@ class OpenFOAMMeshData:
     
     # Mesh quality metrics
     mesh_quality: Optional[Dict[str, Any]] = None
+    
+    # Boundary conditions (parsed from 0/ directory)
+    boundary_conditions: Optional[Dict[str, Any]] = None
 
 
 class OpenFOAMFileParser:
@@ -225,6 +231,15 @@ class OpenFOAMPolyMeshReader:
         # Detect mesh type and dimensions
         mesh_type, mesh_dimensions = self._detect_mesh_type(points, faces)
         
+        # Parse boundary conditions from case directory if available
+        boundary_conditions = None
+        case_directory = polymesh_dir.parent  # Go up from polyMesh to case directory
+        try:
+            boundary_conditions = parse_openfoam_boundary_conditions(str(case_directory))
+            logger.info(f"Parsed boundary conditions for {len(boundary_conditions['summary']['field_names'])} fields")
+        except Exception as e:
+            logger.warning(f"Could not parse boundary conditions: {e}")
+        
         # Create mesh data structure
         mesh_data = OpenFOAMMeshData(
             points=points,
@@ -241,7 +256,8 @@ class OpenFOAMPolyMeshReader:
             mesh_dimensions=mesh_dimensions,
             cell_zones=cell_zones,
             face_zones=face_zones,
-            point_zones=point_zones
+            point_zones=point_zones,
+            boundary_conditions=boundary_conditions
         )
         
         # Validate mesh

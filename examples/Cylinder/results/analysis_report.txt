@@ -4,34 +4,34 @@ CYLINDER SHAPE OPTIMIZATION - COMPREHENSIVE ANALYSIS REPORT
 
 CASE OVERVIEW:
   Case name: cylinder_flow_optimization
-  Analysis date: 2025-07-28 13:39:06
-  Original run date: 2025-07-28T13:39:03.081076
+  Analysis date: 2025-07-29 12:58:10
+  Original run date: 2025-07-29T12:58:06.147960
 
 CONVERGENCE ANALYSIS:
   Status: SUCCESS
   Total iterations: 1
   Function evaluations: 12
-  Optimization time: 35.93s
-  Objective improvement: -0.00%
-  Convergence rate: 2.07e-01
+  Optimization time: 173.99s
+  Objective improvement: 0.04%
+  Convergence rate: 0.00e+00
   Monotonic decrease: False
-  Efficiency score: 25.0/100
-  Avg iteration time: 35.933s
+  Efficiency score: 25.1/100
+  Avg iteration time: 173.987s
 
 AERODYNAMIC PERFORMANCE:
   Initial drag coefficient: 0.025353
-  Final drag coefficient: 0.025353
-  Drag reduction: -0.00%
+  Final drag coefficient: 0.025343
+  Drag reduction: 0.04%
   Reynolds number: 100.0
   Flow regime: laminar_vortex_shedding
 
 DESIGN VARIABLE ANALYSIS:
-  Total design variables: 60
-  High importance variables: 12
-  Medium importance variables: 18
-  Low importance variables: 30
-  Active variables: 53
-  Variable range: 0.000335
+  Total design variables: 32
+  High importance variables: 7
+  Medium importance variables: 9
+  Low importance variables: 16
+  Active variables: 16
+  Variable range: 0.000428
 
 MESH QUALITY ANALYSIS:
   Mesh points: 5000

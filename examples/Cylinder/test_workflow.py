@@ -17,6 +17,8 @@ import sys
 import subprocess
 from pathlib import Path
 import json
+import yaml
+import shutil
 
 def run_command(cmd, description):
     """Run a command and report results."""
@@ -119,9 +121,47 @@ def validate_results():
         print(f"✗ Error validating results: {e}")
         return False
 
+def setup_10_core_config():
+    """Create a temporary configuration file configured for exactly 10 cores."""
+    case_dir = Path(__file__).parent
+    original_config = case_dir / "optimization_config.yaml"
+    temp_config = case_dir / "optimization_config_10cores.yaml"
+    
+    # Load original configuration
+    with open(original_config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Configure for exactly 10 cores (5 MPI processes × 2 OpenMP threads)
+    config['parallel'] = {
+        'enable': True,
+        'mpi_processes': 5,
+        'openmp_threads': 2,
+        'domain_decomposition': 'geometric',
+        'load_balancing': True
+    }
+    
+    # Save temporary configuration
+    with open(temp_config, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, indent=2)
+    
+    print(f"✓ Created 10-core configuration: {temp_config.name}")
+    print(f"  • MPI processes: {config['parallel']['mpi_processes']}")
+    print(f"  • OpenMP threads per process: {config['parallel']['openmp_threads']}")
+    print(f"  • Total cores: {config['parallel']['mpi_processes'] * config['parallel']['openmp_threads']}")
+    
+    return temp_config
+
+def cleanup_temp_files():
+    """Clean up temporary configuration files."""
+    case_dir = Path(__file__).parent
+    temp_config = case_dir / "optimization_config_10cores.yaml"
+    if temp_config.exists():
+        temp_config.unlink()
+        print(f"✓ Cleaned up temporary file: {temp_config.name}")
+
 def main():
     """Run complete workflow test."""
-    print("CYLINDER OPTIMIZATION WORKFLOW TEST")
+    print("CYLINDER OPTIMIZATION WORKFLOW TEST - 10 CORES")
     print("="*80)
     
     # Step 1: Validate files
@@ -129,24 +169,36 @@ def main():
         print("\n✗ File validation failed - cannot proceed")
         return 1
     
-    # Step 2: Test quick optimization run
-    if not run_command("python3 run_cylinder_optimization.py --max-iter 2", 
-                      "Quick optimization run"):
+    # Step 2: Setup 10-core configuration
+    try:
+        temp_config = setup_10_core_config()
+        
+        # Step 3: Test quick optimization run with 10 cores (5 MPI × 2 OpenMP)
+        cmd = f"OMP_NUM_THREADS=2 python3 run_cylinder_optimization.py --config {temp_config.name} --max-iter 2 --parallel"
+        if not run_command(cmd, "Quick optimization run with 10 cores (5 MPI × 2 OpenMP)"):
+            cleanup_temp_files()
+            return 1
+            
+    except Exception as e:
+        print(f"✗ Failed to setup 10-core configuration: {e}")
         return 1
     
-    # Step 3: Validate results
+    # Step 4: Validate results
     if not validate_results():
         print("\n✗ Results validation failed")
+        cleanup_temp_files()
         return 1
     
-    # Step 4: Test analysis
+    # Step 5: Test analysis
     if not run_command("python3 analyze_results.py --save-plots", 
                       "Results analysis"):
+        cleanup_temp_files()
         return 1
     
-    # Step 5: Test visualization
+    # Step 6: Test visualization
     if not run_command("python3 create_visualization.py --mesh-plot", 
                       "Mesh visualization"):
+        cleanup_temp_files()
         return 1
     
     # Final validation
@@ -178,14 +230,16 @@ def main():
         print(f"\n🎉 COMPLETE WORKFLOW TEST: SUCCESS!")
         print("All components working correctly:")
         print("  • OpenFOAM mesh reading ✓")
-        print("  • Shape optimization ✓") 
+        print("  • Shape optimization with 10 cores ✓") 
         print("  • Results analysis ✓")
         print("  • Visualization generation ✓")
         print(f"\nThe cylinder optimization test case is ready for production use!")
+        cleanup_temp_files()
         return 0
     else:
         print(f"\n✗ COMPLETE WORKFLOW TEST: FAILED")
         print("Some outputs are missing - check error messages above")
+        cleanup_temp_files()
         return 1
 
 if __name__ == "__main__":

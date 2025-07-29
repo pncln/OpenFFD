@@ -43,7 +43,7 @@ boundary_conditions:
 parameterization:
   type: "free_form_deformation"
   ffd_box:
-    n_control_points: [4, 3, 2]  # nx, ny, nz
+    n_control_points: [2, 4, 2]  # nx, ny, nz (matches FFD.xyz file)
     box_bounds:
       x_min: -1.5
       x_max: 1.5
@@ -52,22 +52,22 @@ parameterization:
       z_min: -0.05
       z_max: 0.15
   design_variables:
-    total_count: 60
+    total_count: 16  # 2*4*2 control points (matches FFD.xyz)
     active_variables:
       # Allow movement except for fixed boundary points
       fix_leading_edge: true
       fix_trailing_edge: true
       fix_symmetry_planes: true
     bounds:
-      displacement_magnitude: 0.2  # Maximum displacement as fraction of cylinder diameter
+      displacement_magnitude: 0.05  # Maximum displacement as fraction of cylinder diameter (reduced for stability)
 
 # Optimization Algorithm
 optimization:
   algorithm: "slsqp"  # Sequential Least Squares Programming
   max_iterations: 50
-  convergence_tolerance: 1.0e-6
-  gradient_tolerance: 1.0e-6
-  step_tolerance: 1.0e-8
+  convergence_tolerance: 1.0e-4
+  gradient_tolerance: 1.0e-4
+  step_tolerance: 1.0e-6
   
   # Line search parameters
   line_search:
@@ -135,7 +135,7 @@ cfd_solver:
   # Convergence criteria
   convergence:
     residual_tolerance: 1.0e-6
-    max_iterations: 1000
+    max_iterations: 200  # Reduced for faster testing
     monitoring_variables: ["velocity", "pressure"]
     
   # Boundary layer resolution
@@ -163,7 +163,7 @@ adjoint_solver:
 # Parallelization
 parallel:
   enable: true
-  mpi_processes: 4
+  mpi_processes: 5
   openmp_threads: 2
   domain_decomposition: "geometric"
   load_balancing: true

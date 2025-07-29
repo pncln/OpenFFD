@@ -216,44 +216,110 @@ class FreeFormDeformation(DesignParameterization):
     """
     
     def __init__(self, config: OptimizationConfig, 
-                 n_control_points: Tuple[int, int, int] = (4, 3, 2)):
+                 n_control_points: Tuple[int, int, int] = (4, 3, 2),
+                 ffd_file_path: Optional[str] = None):
         """Initialize FFD parameterization."""
         super().__init__(config)
         self.n_control_points = n_control_points
         self.control_points: Optional[np.ndarray] = None
         self.bounding_box: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        self.ffd_file_path = ffd_file_path
         
+    def _load_ffd_from_file(self, file_path: str) -> None:
+        """Load FFD control box from .xyz file."""
+        try:
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+            
+            # Parse FFD file format
+            n_blocks = int(lines[0].strip())
+            if n_blocks != 1:
+                raise ValueError(f"Only single FFD block supported, found {n_blocks}")
+            
+            # Parse dimensions
+            dims = list(map(int, lines[1].strip().split()))
+            if len(dims) != 3:
+                raise ValueError(f"Expected 3 dimensions, found {len(dims)}")
+            
+            nx, ny, nz = dims
+            self.n_control_points = (nx, ny, nz)
+            
+            # Parse coordinates
+            x_coords = list(map(float, lines[2].strip().split()))
+            y_coords = list(map(float, lines[3].strip().split()))
+            z_coords = list(map(float, lines[4].strip().split()))
+            
+            n_points = nx * ny * nz
+            if len(x_coords) != n_points or len(y_coords) != n_points or len(z_coords) != n_points:
+                raise ValueError(f"Coordinate arrays size mismatch. Expected {n_points} points")
+            
+            # Reshape into control point lattice
+            self.control_points = np.zeros((nx, ny, nz, 3))
+            
+            idx = 0
+            for k in range(nz):
+                for j in range(ny):
+                    for i in range(nx):
+                        self.control_points[i, j, k, 0] = x_coords[idx]
+                        self.control_points[i, j, k, 1] = y_coords[idx]
+                        self.control_points[i, j, k, 2] = z_coords[idx]
+                        idx += 1
+            
+            # Compute bounding box from control points
+            min_coords = np.min(self.control_points.reshape(-1, 3), axis=0)
+            max_coords = np.max(self.control_points.reshape(-1, 3), axis=0)
+            self.bounding_box = (min_coords, max_coords)
+            
+            print(f"Loaded FFD control box from {file_path}: {nx}×{ny}×{nz} control points")
+            print(f"  Control point bounds: X[{min_coords[0]:.3f}, {max_coords[0]:.3f}], Y[{min_coords[1]:.3f}, {max_coords[1]:.3f}], Z[{min_coords[2]:.3f}, {max_coords[2]:.3f}]")
+            
+        except Exception as e:
+            print(f"Warning: Could not load FFD file {file_path}: {e}")
+            print("Using default FFD box generation...")
+            self.control_points = None
+            self.bounding_box = None
+    
     def setup_design_variables(self, initial_geometry: Dict[str, Any]) -> List[DesignVariable]:
         """Setup FFD control point design variables."""
         self.design_variables = []
         
-        # Extract geometry bounds
-        if 'vertices' in initial_geometry:
-            vertices = initial_geometry['vertices']
-            bbox_min = np.min(vertices, axis=0)
-            bbox_max = np.max(vertices, axis=0)
-            self.bounding_box = (bbox_min, bbox_max)
-        else:
-            # Default bounding box
-            bbox_min = np.array([-1.0, -0.5, -0.1])
-            bbox_max = np.array([2.0, 0.5, 0.1])
-            self.bounding_box = (bbox_min, bbox_max)
+        # Load FFD control box from file if provided
+        if self.ffd_file_path:
+            self._load_ffd_from_file(self.ffd_file_path)
         
-        # Create control point lattice
+        # If no FFD loaded, create default box
+        if self.control_points is None:
+            # Extract geometry bounds
+            if 'vertices' in initial_geometry:
+                vertices = initial_geometry['vertices']
+                bbox_min = np.min(vertices, axis=0)
+                bbox_max = np.max(vertices, axis=0)
+                self.bounding_box = (bbox_min, bbox_max)
+            else:
+                # Default bounding box
+                bbox_min = np.array([-1.0, -0.5, -0.1])
+                bbox_max = np.array([2.0, 0.5, 0.1])
+                self.bounding_box = (bbox_min, bbox_max)
+            
+            # Create control point lattice
+            nx, ny, nz = self.n_control_points
+            self.control_points = np.zeros((nx, ny, nz, 3))
+            
+            # Initialize control points uniformly in bounding box
+            for i in range(nx):
+                for j in range(ny):
+                    for k in range(nz):
+                        u = i / (nx - 1) if nx > 1 else 0.0
+                        v = j / (ny - 1) if ny > 1 else 0.0
+                        w = k / (nz - 1) if nz > 1 else 0.0
+                        
+                        self.control_points[i, j, k] = (
+                            bbox_min + np.array([u, v, w]) * (bbox_max - bbox_min)
+                        )
+        
+        # Get current control box dimensions
         nx, ny, nz = self.n_control_points
-        self.control_points = np.zeros((nx, ny, nz, 3))
-        
-        # Initialize control points uniformly in bounding box
-        for i in range(nx):
-            for j in range(ny):
-                for k in range(nz):
-                    u = i / (nx - 1) if nx > 1 else 0.0
-                    v = j / (ny - 1) if ny > 1 else 0.0
-                    w = k / (nz - 1) if nz > 1 else 0.0
-                    
-                    self.control_points[i, j, k] = (
-                        bbox_min + np.array([u, v, w]) * (bbox_max - bbox_min)
-                    )
+        bbox_min, bbox_max = self.bounding_box
         
         # Create design variables for control point displacements
         displacement_magnitude = 0.1 * np.linalg.norm(bbox_max - bbox_min)
@@ -313,7 +379,7 @@ class FreeFormDeformation(DesignParameterization):
                             updated_control_points[i, j, k, coord] += displacement
                             var_idx += 1
         
-        # Apply FFD deformation
+        # Apply FFD deformation using Bernstein polynomials
         deformed_vertices = np.zeros_like(original_vertices)
         
         for vertex_idx in range(n_vertices):
@@ -324,18 +390,53 @@ class FreeFormDeformation(DesignParameterization):
             param_coords = (vertex - bbox_min) / (bbox_max - bbox_min + 1e-12)
             param_coords = np.clip(param_coords, 0.0, 1.0)
             
-            # Trilinear interpolation using control points
-            deformed_vertex = self._trilinear_interpolation(
-                param_coords, updated_control_points
+            # FFD deformation using Bernstein polynomials
+            displacement = self._compute_ffd_displacement(
+                param_coords, self.control_points, updated_control_points
             )
             
-            deformed_vertices[vertex_idx] = deformed_vertex
+            deformed_vertices[vertex_idx] = vertex + displacement
         
         # Update geometry
         new_geometry = copy.deepcopy(geometry)
         new_geometry['vertices'] = deformed_vertices
         
         return new_geometry
+    
+    def _compute_ffd_displacement(self, param_coords: np.ndarray, 
+                                original_control_points: np.ndarray,
+                                updated_control_points: np.ndarray) -> np.ndarray:
+        """Compute FFD displacement using Bernstein polynomials."""
+        u, v, w = param_coords
+        nx, ny, nz, _ = original_control_points.shape
+        
+        # Compute displacement as weighted sum of control point displacements
+        displacement = np.zeros(3)
+        
+        for i in range(nx):
+            for j in range(ny):
+                for k in range(nz):
+                    # Bernstein polynomials for tri-variate FFD
+                    B_i = self._bernstein_polynomial(i, nx-1, u)
+                    B_j = self._bernstein_polynomial(j, ny-1, v)
+                    B_k = self._bernstein_polynomial(k, nz-1, w)
+                    
+                    # Weight for this control point
+                    weight = B_i * B_j * B_k
+                    
+                    # Control point displacement
+                    cp_displacement = (updated_control_points[i, j, k] - 
+                                     original_control_points[i, j, k])
+                    
+                    # Add weighted displacement
+                    displacement += weight * cp_displacement
+        
+        return displacement
+    
+    def _bernstein_polynomial(self, i: int, n: int, t: float) -> float:
+        """Compute Bernstein polynomial B_{i,n}(t)."""
+        from math import comb
+        return comb(n, i) * (t ** i) * ((1 - t) ** (n - i))
     
     def _trilinear_interpolation(self, param_coords: np.ndarray, 
                                control_points: np.ndarray) -> np.ndarray:
@@ -643,9 +744,10 @@ class ShapeOptimizer:
     Integrates parameterization, CFD solver, adjoint solver, and optimization algorithm.
     """
     
-    def __init__(self, config: OptimizationConfig):
+    def __init__(self, config: OptimizationConfig, ffd_file_path: Optional[str] = None):
         """Initialize shape optimizer."""
         self.config = config
+        self.ffd_file_path = ffd_file_path
         self.parameterization: Optional[DesignParameterization] = None
         self.constraints: List[OptimizationConstraint] = []
         
@@ -674,7 +776,7 @@ class ShapeOptimizer:
     def setup_parameterization(self, initial_geometry: Dict[str, Any]):
         """Setup design parameterization."""
         if self.config.parameterization == ParameterizationType.FREE_FORM_DEFORMATION:
-            self.parameterization = FreeFormDeformation(self.config)
+            self.parameterization = FreeFormDeformation(self.config, ffd_file_path=self.ffd_file_path)
         elif self.config.parameterization == ParameterizationType.B_SPLINE:
             self.parameterization = BSplineParameterization(self.config)
         else:
