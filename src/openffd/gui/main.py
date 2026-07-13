@@ -303,7 +303,7 @@ class OpenFFDMainWindow(QMainWindow):
             self,
             "Open Mesh File",
             "",
-            "Mesh Files (*.cas *.msh *.vtk *.stl *.obj);;All Files (*)"
+            "Mesh Files (*.cas *.msh *.cgns *.vtk *.vtu *.stl *.obj);;CGNS Files (*.cgns);;All Files (*)"
         )
         
         if file_path:
@@ -587,14 +587,14 @@ class OpenFFDMainWindow(QMainWindow):
                 
                 # Choose appropriate writer based on file extension
                 if file_path.lower().endswith(".3df"):
-                    write_ffd_3df(file_path, self.ffd_control_points, nx, ny, nz)
+                    write_ffd_3df(self.ffd_control_points, file_path)
                 elif file_path.lower().endswith(".xyz"):
-                    write_ffd_xyz(file_path, self.ffd_control_points, nx, ny, nz)
+                    write_ffd_xyz(self.ffd_control_points, file_path, control_dim)
                 else:
                     # Add extension if needed
                     if "." not in os.path.basename(file_path):
                         file_path += ".3df"
-                        write_ffd_3df(file_path, self.ffd_control_points, nx, ny, nz)
+                        write_ffd_3df(self.ffd_control_points, file_path)
                         
                 self.statusBar().showMessage(f"Standard FFD box exported to {file_path}")
                 
@@ -607,14 +607,14 @@ class OpenFFDMainWindow(QMainWindow):
                 
                 # Choose appropriate writer based on file extension
                 if file_path.lower().endswith(".3df"):
-                    write_ffd_3df(file_path, control_points, nx, ny, nz)
+                    write_ffd_3df(control_points, file_path)
                 elif file_path.lower().endswith(".xyz"):
-                    write_ffd_xyz(file_path, control_points, nx, ny, nz)
+                    write_ffd_xyz(control_points, file_path, root_level.dims)
                 else:
                     # Add extension if needed
                     if "." not in os.path.basename(file_path):
                         file_path += ".3df"
-                        write_ffd_3df(file_path, control_points, nx, ny, nz)
+                        write_ffd_3df(control_points, file_path)
                 
                 # Also export each hierarchical level to separate files
                 base_name, ext = os.path.splitext(file_path)
@@ -629,9 +629,9 @@ class OpenFFDMainWindow(QMainWindow):
                     level_file = f"{base_name}_level{level_id}{ext}"
                     # Export the level
                     if ext.lower() == ".3df":
-                        write_ffd_3df(level_file, level.control_points, *level.dims)
+                        write_ffd_3df(level.control_points, level_file)
                     elif ext.lower() == ".xyz":
-                        write_ffd_xyz(level_file, level.control_points, *level.dims)
+                        write_ffd_xyz(level.control_points, level_file, level.dims)
                 
                 self.statusBar().showMessage(f"Hierarchical FFD exported to {file_path} and level files")
         except Exception as e:

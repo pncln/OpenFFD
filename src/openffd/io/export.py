@@ -70,19 +70,20 @@ def write_ffd_3df(control_points: np.ndarray, filename: str = 'ffd_box.3df') -> 
         raise
 
 
-def write_ffd_xyz(control_points: np.ndarray, filename: str = 'ffd_box.xyz') -> None:
-    """Write FFD control points to a .xyz file format used by DAFoam.
-    
-    This format uses the following structure:
-    num_points
-    FFD control points for DAFoam
-    x0 y0 z0
-    x1 y1 z1
-    ...
+def write_ffd_xyz(
+    control_points: np.ndarray,
+    filename: str = 'ffd_box.xyz',
+    dimensions: Optional[Tuple[int, int, int]] = None,
+) -> None:
+    """Write an FFD lattice in ASCII multiblock PLOT3D format.
+
+    This is the ``.xyz`` format consumed by DAFoam/pyGeo and ParaView's
+    PLOT3D reader. Coordinates are written with the i index changing fastest.
     
     Args:
         control_points: Numpy array of control point coordinates with shape (n, 3)
         filename: Output filename (will be created or overwritten)
+        dimensions: Structured lattice dimensions ``(ni, nj, nk)``
         
     Raises:
         TypeError: If control_points is not a numpy array
@@ -98,6 +99,24 @@ def write_ffd_xyz(control_points: np.ndarray, filename: str = 'ffd_box.xyz') -> 
         
     if len(control_points.shape) != 2 or control_points.shape[1] != 3:
         raise ValueError(f"control_points must have shape (n, 3), got {control_points.shape}")
+
+    if dimensions is None:
+        cube_dim = round(control_points.shape[0] ** (1.0 / 3.0))
+        if cube_dim ** 3 != control_points.shape[0]:
+            raise ValueError(
+                "dimensions are required for a non-cubic PLOT3D FFD lattice"
+            )
+        dimensions = (cube_dim, cube_dim, cube_dim)
+
+    if len(dimensions) != 3 or any(dim < 1 for dim in dimensions):
+        raise ValueError(f"dimensions must contain three positive values, got {dimensions}")
+
+    expected_points = int(np.prod(dimensions))
+    if expected_points != control_points.shape[0]:
+        raise ValueError(
+            f"dimensions {dimensions} require {expected_points} control points, "
+            f"got {control_points.shape[0]}"
+        )
     
     # Create directory if it doesn't exist
     output_dir = os.path.dirname(os.path.abspath(filename))
@@ -109,17 +128,17 @@ def write_ffd_xyz(control_points: np.ndarray, filename: str = 'ffd_box.xyz') -> 
             logger.error(f"Failed to create output directory: {e}")
             raise IOError(f"Failed to create output directory: {e}")
     
-    logger.info(f"Writing FFD control points to .xyz file: {filename}")
+    logger.info(f"Writing FFD control points to PLOT3D file: {filename}")
     
     try:
-        num = control_points.shape[0]
-        with open(filename, 'w') as f:
-            f.write(f'{num}\n')
-            f.write('FFD control points for DAFoam\n')
-            for (x, y, z) in control_points:
-                f.write(f'{x:.6f} {y:.6f} {z:.6f}\n')
-        
-        logger.info(f"Successfully wrote {num} control points to {filename}")
+        from openffd.io.plot3d import create_structured_grid, write_plot3d_file
+
+        arrays = create_structured_grid(control_points.tolist(), list(dimensions))
+        write_plot3d_file(filename, *arrays)
+        logger.info(
+            f"Successfully wrote {control_points.shape[0]} control points "
+            f"with dimensions {dimensions} to {filename}"
+        )
     except PermissionError:
         logger.error(f"Permission denied when writing to {filename}")
         raise IOError(f"Permission denied when writing to {filename}")
@@ -227,43 +246,79 @@ def read_ffd_xyz(filename: str) -> np.ndarray:
     
     try:
         with open(filename, 'r') as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                line_count += 1
-                
-                # Skip empty lines
-                if not line:
-                    continue
-                
-                # Handle first line with number of points
-                if line_num == 1:
-                    try:
-                        expected_points = int(line.strip())
-                        header_lines += 1
-                        logger.debug(f"Expecting {expected_points} control points")
-                        continue
-                    except ValueError:
-                        logger.warning(f"First line should contain number of points, got: '{line}'")
-                        # Continue anyway, maybe it's a different format
-                
-                # Skip second line (description)
-                if line_num == 2:
+            lines = f.readlines()
+
+        # Preferred DAFoam/pyGeo format: ASCII multiblock PLOT3D.
+        if len(lines) >= 2:
+            try:
+                block_count = int(lines[0].strip())
+                dimensions = tuple(map(int, lines[1].split()))
+            except ValueError:
+                block_count = 0
+                dimensions = ()
+
+            if block_count == 1 and len(dimensions) == 3:
+                ni, nj, nk = dimensions
+                num_points = ni * nj * nk
+                values = np.fromstring(" ".join(lines[2:]), sep=" ")
+                if values.size != 3 * num_points:
+                    raise ValueError(
+                        f"PLOT3D coordinate count mismatch: expected "
+                        f"{3 * num_points}, found {values.size}"
+                    )
+
+                plot3d_points = np.column_stack(
+                    (
+                        values[:num_points],
+                        values[num_points:2 * num_points],
+                        values[2 * num_points:],
+                    )
+                )
+                # Convert i-fastest PLOT3D ordering back to OpenFFD's
+                # internal ordering (k fastest, then j, then i).
+                return (
+                    plot3d_points.reshape(nk, nj, ni, 3)
+                    .transpose(2, 1, 0, 3)
+                    .reshape(-1, 3)
+                )
+
+        # Backward compatibility for the former count/comment/XYZ layout.
+        for line_num, line in enumerate(lines, 1):
+            line = line.strip()
+            line_count += 1
+
+            # Skip empty lines
+            if not line:
+                continue
+
+            # Handle first line with number of points
+            if line_num == 1:
+                try:
+                    expected_points = int(line.strip())
                     header_lines += 1
                     continue
-                    
-                # Parse coordinate lines
-                parts = line.split()
-                if len(parts) >= 3:  # x, y, z
-                    try:
-                        # Try to parse as floats
-                        x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
-                        points.append([x, y, z])
-                    except (ValueError, IndexError) as e:
-                        invalid_lines += 1
-                        logger.warning(f"Invalid line {line_num} in .xyz file: '{line}', error: {e}")
-                else:
+                except ValueError:
+                    logger.warning(f"First line should contain number of points, got: '{line}'")
+                    # Continue anyway, maybe it's a different format
+
+            # Skip second line (description)
+            if line_num == 2:
+                header_lines += 1
+                continue
+
+            # Parse coordinate lines
+            parts = line.split()
+            if len(parts) >= 3:  # x, y, z
+                try:
+                    # Try to parse as floats
+                    x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
+                    points.append([x, y, z])
+                except (ValueError, IndexError) as e:
                     invalid_lines += 1
-                    logger.warning(f"Line {line_num} has insufficient values: '{line}'")
+                    logger.warning(f"Invalid line {line_num} in .xyz file: '{line}', error: {e}")
+            else:
+                invalid_lines += 1
+                logger.warning(f"Line {line_num} has insufficient values: '{line}'")
                         
         if not points:
             raise ValueError("No valid control points found in file")

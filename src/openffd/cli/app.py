@@ -458,7 +458,7 @@ def main() -> int:
         try:
             # First export in the requested primary format (from output filename extension)
             if args.output.endswith('.xyz'):
-                write_ffd_xyz(cps, args.output)
+                write_ffd_xyz(cps, args.output, control_dim)
                 logger.info(f"FFD control points written to {args.output} in XYZ format")
                 
                 # If also requested to export in 3DF format
@@ -474,7 +474,7 @@ def main() -> int:
                 if args.export_xyz:
                     # Generate XYZ filename from the 3DF filename by replacing extension
                     xyz_filename = os.path.splitext(args.output)[0] + '.xyz'
-                    write_ffd_xyz(cps, xyz_filename)
+                    write_ffd_xyz(cps, xyz_filename, control_dim)
                     logger.info(f"FFD control points also written to {xyz_filename} in XYZ format")
         except Exception as e:
             logger.error(f"Error writing output file: {e}")

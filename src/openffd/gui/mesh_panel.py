@@ -69,7 +69,7 @@ class MeshPanel(QWidget):
         # Format options
         format_layout = QFormLayout()
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["Auto Detect", "Fluent", "VTK", "STL", "OBJ", "Other"])
+        self.format_combo.addItems(["Auto Detect", "Fluent", "CGNS", "VTK", "STL", "OBJ", "Other"])
         self.format_combo.currentIndexChanged.connect(self._on_format_changed)
         
         format_layout.addRow("Format:", self.format_combo)
@@ -189,17 +189,19 @@ class MeshPanel(QWidget):
             self,
             "Open Mesh File",
             "",
-            "Mesh Files (*.cas *.msh *.vtk *.stl *.obj);;All Files (*)"
+            "Mesh Files (*.cas *.msh *.cgns *.vtk *.vtu *.stl *.obj);;CGNS Files (*.cgns);;All Files (*)"
         )
         
         if file_path:
             self.mesh_file_path = file_path
             self.file_label.setText(os.path.basename(file_path))
             self.load_button.setEnabled(True)
-            
+
             # Try to auto-detect format
             if file_path.lower().endswith(('.cas', '.msh')):
                 self.format_combo.setCurrentText("Fluent")
+            elif file_path.lower().endswith('.cgns'):
+                self.format_combo.setCurrentText("CGNS")
             elif file_path.lower().endswith('.vtk'):
                 self.format_combo.setCurrentText("VTK")
             elif file_path.lower().endswith('.stl'):
@@ -400,7 +402,8 @@ class MeshPanel(QWidget):
         
         # Check zone size first to determine if we need background processing
         try:
-            zone_info = self.mesh_data.zones.get(zone_name, {})
+            zones = getattr(self.mesh_data, 'zones', {})
+            zone_info = zones.get(zone_name, {})
             zone_obj = zone_info.get('object')
             
             # Estimate zone size for performance decision
@@ -652,6 +655,8 @@ class MeshPanel(QWidget):
         self.mesh_file_path = file_path
         self.file_label.setText(os.path.basename(file_path))
         self.load_button.setEnabled(True)
+        if file_path.lower().endswith('.cgns'):
+            self.format_combo.setCurrentText("CGNS")
         self._load_mesh()
 
 

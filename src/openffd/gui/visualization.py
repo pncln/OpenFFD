@@ -3,6 +3,7 @@
 This module provides the 3D visualization widget for rendering meshes and FFD control boxes.
 """
 
+import copy
 import logging
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
@@ -37,6 +38,17 @@ from openffd.visualization.hierarchical_viz import visualize_hierarchical_ffd_py
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _prepare_surface_mesh_for_rendering(mesh):
+    """Extract exterior faces without triangulating higher-order cells."""
+    if isinstance(mesh, pv.UnstructuredGrid):
+        try:
+            return mesh.extract_surface(nonlinear_subdivision=0)
+        except TypeError:
+            # Compatibility with PyVista versions predating this argument.
+            return mesh.linear_copy().extract_surface()
+    return mesh
 
 
 class FFDVisualizationWidget(QWidget):
@@ -154,8 +166,20 @@ class FFDVisualizationWidget(QWidget):
                     if hasattr(mesh_data, 'to_pyvista'):
                         pv_mesh = mesh_data.to_pyvista()
                     else:
-                        # Create a point cloud from the points
-                        pv_mesh = pv.PolyData(mesh_points)
+                        try:
+                            # Preserve cell sets used by the zone controls;
+                            # PyVista may normalize them in place.
+                            pv_mesh = pv.from_meshio(copy.deepcopy(mesh_data))
+                        except Exception as conversion_error:
+                            logger.warning(
+                                "Could not convert mesh connectivity for rendering: %s",
+                                conversion_error,
+                            )
+                            pv_mesh = pv.PolyData(mesh_points)
+
+                    # VTK otherwise tessellates quadratic quad faces and shows
+                    # the tessellation edges as triangles in the 3D view.
+                    pv_mesh = _prepare_surface_mesh_for_rendering(pv_mesh)
                     
                     # Add mesh to plotter
                     self.mesh_actor = self.plotter.add_mesh(

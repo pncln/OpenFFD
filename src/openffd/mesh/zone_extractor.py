@@ -171,6 +171,11 @@ class ZoneExtractor:
         
         logger.debug(f"Initialized ZoneExtractor for {self._mesh_file} (Fluent format: {is_fluent})")
 
+    @property
+    def mesh_file(self) -> str:
+        """Return the source mesh path."""
+        return self._mesh_file
+
     def _detect_fluent_mesh(self) -> bool:
         """Detect if the mesh file is in Fluent format.
         
@@ -347,24 +352,35 @@ class ZoneExtractor:
         if not zones_detected and len(self._zones) == 0:
             self._create_default_zones()
 
-    def _extract_cell_set_info(self, name: str, cell_set: Dict[str, np.ndarray]) -> None:
+    def _extract_cell_set_info(self, name: str, cell_set: Any) -> None:
         """Extract zone information from a cell set.
         
         Args:
             name: Name of the cell set
-            cell_set: Dictionary mapping cell types to arrays of cell indices
+            cell_set: Cell indices keyed by type or aligned with cell blocks
         """
-        element_types = set(cell_set.keys())
-        cell_count = sum(len(indices) for indices in cell_set.values())
-        
-        # Extract points for this zone
         point_indices = set()
-        for cell_type, indices in cell_set.items():
-            for i, block in enumerate(self._mesh.cells):
-                if block.type == cell_type:
-                    cells = block.data[indices]
-                    for conn in cells:
-                        point_indices.update(conn.tolist())
+        element_types = set()
+        cell_count = 0
+
+        if isinstance(cell_set, dict):
+            entries = (
+                (block, cell_set[block.type])
+                for block in self._mesh.cells
+                if block.type in cell_set
+            )
+        else:
+            entries = zip(self._mesh.cells, cell_set)
+
+        for block, indices in entries:
+            indices = np.asarray(indices, dtype=np.int64)
+            cells = block.data[indices]
+            if len(cells) == 0:
+                continue
+            element_types.add(block.type)
+            cell_count += len(cells)
+            for conn in cells:
+                point_indices.update(conn.tolist())
         
         point_count = len(point_indices)
         

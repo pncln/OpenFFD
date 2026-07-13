@@ -81,6 +81,12 @@ def read_general_mesh(filename: str) -> Any:
     # Determine file format
     file_format = None
     ext = os.path.splitext(filename)[1].lower()
+
+    # Legacy ADF CGNS files need VTK; meshio only reads HDF5 CGNS files.
+    if ext == '.cgns':
+        from openffd.mesh.cgns_reader import read_cgns_mesh
+
+        return read_cgns_mesh(filename)
     
     # Map common extensions to meshio formats
     format_map = {
@@ -562,10 +568,17 @@ def extract_patch_points(mesh_data: Any, patch_name: str) -> np.ndarray:
         logger.debug(f"Found patch in cell_sets: {patch_name}")
         found = True
         cell_sets = mesh.cell_sets[patch_name]
-        for i, block in enumerate(mesh.cells):
-            ctype = block.type
-            if ctype in cell_sets:
-                cells = block.data[cell_sets[ctype]]
+        if isinstance(cell_sets, dict):
+            # Compatibility with meshio's older cell-type keyed form.
+            for block in mesh.cells:
+                if block.type in cell_sets:
+                    cells = block.data[cell_sets[block.type]]
+                    for conn in cells:
+                        node_ids.update(conn.tolist())
+        else:
+            # meshio 5 stores one index array per cell block.
+            for block, indices in zip(mesh.cells, cell_sets):
+                cells = block.data[np.asarray(indices, dtype=np.int64)]
                 for conn in cells:
                     node_ids.update(conn.tolist())
     

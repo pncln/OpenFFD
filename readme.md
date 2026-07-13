@@ -23,7 +23,7 @@ The system uses parallel processing to handle big mesh data sets efficiently whi
 ## ✨ Key Features
 
 Hierarchical FFD: The framework features multiple-level FFD with adjustable subdivision parameters for precise control over specific regions.
-- **Universal Mesh Support**: The system accepts Fluent mesh (.cas,.msh) files as well as VTK, STL, OBJ and Gmsh and more through a unified interface.
+- **Universal Mesh Support**: The system accepts Fluent, CGNS (HDF5 and ADF), VTK, STL, OBJ, and Gmsh meshes through a unified interface.
 Enhanced Zone Extraction: Advanced detection and extraction functionality of complex CFD zones combined with robust boundary handling capabilities.
 OpenFOAM Integration: Direct integration with OpenFOAM and sonicFoamAdjoint for shape optimization of supersonic flows.
 Parallel Processing: Optimized multi-core processing for handling large-scale meshes with millions of points efficiently
@@ -284,15 +284,22 @@ x2 y2 z2
 ...
 ```
 
-###.xyz Format (DAFoam-compatible)
+### .xyz Format (DAFoam-compatible PLOT3D)
 
-A simplified format compatible with DAFoam and other optimization frameworks:
+An ASCII multiblock PLOT3D file compatible with DAFoam, pyGeo, and ParaView:
 
+```text
+1
+Ni Nj Nk
+x coordinates (i changes fastest)
+y coordinates (i changes fastest)
+z coordinates (i changes fastest)
 ```
-x1 y1 z1
-x2 y2 z2
-...
-```
+
+In ParaView, select **PLOT3D Reader**, disable **Auto Detect Format** and
+**Binary File**, enable **Multi Grid**, and click **Apply**. ParaView 6 may log
+an auto-detection error when the reader is first created; applying these
+settings reloads the ASCII file correctly.
 
 Enable with the `--export-xyz` flag.
 
